@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="description" content="Configure Northstar teams and capacity.">
+    <title>Teams — Northstar</title>
+    <link rel="icon" href="/favicon.svg">
+    <script src="/theme.js"></script>
+    <link rel="stylesheet" href="/styles.css">
+    <script src="/teams.js" type="module"></script>
+  </head>
+  <body>
+    <main class="app-shell team-settings-shell">
+      <header class="topbar">
+        <a class="brand" href="/" aria-label="Northstar home"><span class="brand-mark">N</span><span>Northstar</span></a>
+        <div class="topbar-actions"><button class="theme-toggle" data-theme-toggle type="button" aria-label="Switch to dark mode" aria-pressed="false"><span class="theme-icon-light" aria-hidden="true">☀</span><span class="theme-icon-dark" aria-hidden="true">☾</span></button><a class="button secondary button-link" href="/">← Priority matrix</a></div>
+      </header>
+
+      <section class="settings-intro">
+        <p class="eyebrow">Configuration</p>
+        <h1>Teams and capacity</h1>
+        <p class="subtitle">Manage the teams responsible for projects and the number of people each team can assign.</p>
+      </section>
+
+      <section class="team-settings-card">
+        <header class="settings-card-head">
+          <div><h2>Teams</h2><p>Capacity cannot be set below the people already assigned to a team’s projects.</p></div>
+          <strong id="team-total">0 people total</strong>
+        </header>
+        <form class="add-team-form" id="add-team-form">
+          <label class="field"><span>Team name</span><input name="name" maxlength="50" required placeholder="For example, Platform"></label>
+          <label class="field"><span>People capacity</span><input name="capacity" type="number" min="0" max="9999" step="1" value="0" required></label>
+          <button class="button primary" type="submit">Add team</button>
+        </form>
+        <p class="form-error" id="team-form-error" role="alert"></p>
+        <div class="team-settings-list" id="team-settings-list"></div>
+      </section>
+    </main>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  </body>
+</html>

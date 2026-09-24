@@ -1,0 +1,21 @@
+/* Full-window matrix view for presentations. */
+body.matrix-presenting { overflow:hidden; }
+.matrix-card.presenting { position:fixed; z-index:100; inset:0; width:100%; height:100vh; height:100dvh; padding:clamp(20px,3vw,42px) clamp(20px,4vw,64px) clamp(18px,3vw,40px); border:0; border-radius:0; display:flex; flex-direction:column; background:var(--white); box-shadow:none; }
+.matrix-card.presenting .matrix-head { flex:0 0 auto; margin-bottom:clamp(14px,2vh,24px); }
+.matrix-card.presenting .matrix-head h2 { font-size:clamp(24px,2.6vw,38px); }
+.matrix-card.presenting .matrix-head p { font-size:12px; }
+.matrix-card.presenting .matrix-wrap { flex:1 1 auto; min-height:0; }
+.matrix-card.presenting .matrix { width:100%; height:100%; min-height:0; aspect-ratio:auto; }
+.matrix-card.presenting .matrix-expand svg { transform:rotate(180deg); }
+.matrix-card.presenting .project-dot span { display:block; }
+
+@media (max-width:620px) {
+  .matrix-card.presenting { padding:16px 11px 14px; }
+  .matrix-card.presenting .matrix-head { display:flex; align-items:flex-start; gap:12px; }
+  .matrix-card.presenting .matrix-head h2 { font-size:22px; }
+  .matrix-card.presenting .matrix-head p,.matrix-card.presenting .matrix-key,.matrix-card.presenting .completed-toggle { display:none; }
+  .matrix-card.presenting .matrix-controls { width:auto; margin:0; }
+  .matrix-card.presenting .matrix-expand { min-height:38px; }
+  .matrix-card.presenting .matrix-wrap { padding-left:22px; }
+  .matrix-card.presenting .project-dot span { display:none; }
+}

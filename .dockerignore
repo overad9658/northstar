@@ -1,0 +1,7 @@
+.git
+.next
+.wrangler
+node_modules
+data
+.sbom
+npm-debug.log

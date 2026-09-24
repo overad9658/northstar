@@ -1,0 +1,13 @@
+services:
+  northstar:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      API_TOKEN: ${API_TOKEN:-}
+    volumes:
+      - northstar-data:/data
+    restart: unless-stopped
+
+volumes:
+  northstar-data:

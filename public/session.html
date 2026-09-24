@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="description" content="Collaboratively score an engineering project with Northstar planning rooms.">
+    <title>Planning Room — Northstar</title>
+    <link rel="icon" href="/favicon.svg">
+    <script src="/theme.js"></script>
+    <link rel="stylesheet" href="/styles.css">
+    <link rel="stylesheet" href="/session.css">
+    <script src="/session.js" type="module"></script>
+  </head>
+  <body class="room-body">
+    <main class="room-shell">
+      <header class="room-topbar">
+        <a class="brand" href="/"><span class="brand-mark">N</span><span>Northstar</span></a>
+        <div class="room-topbar-actions"><button class="theme-toggle" data-theme-toggle type="button" aria-label="Switch to dark mode" aria-pressed="false"><span class="theme-icon-light" aria-hidden="true">☀</span><span class="theme-icon-dark" aria-hidden="true">☾</span></button><div class="room-status"><span class="live-dot"></span><span id="room-status-text">Connecting…</span></div></div>
+      </header>
+
+      <section class="room-hero">
+        <div>
+          <p class="eyebrow">Planning room <span id="room-code"></span></p>
+          <h1 id="project-name">Loading project…</h1>
+          <p class="subtitle" id="project-description"></p>
+        </div>
+        <div class="participant-total"><strong id="participant-count">0</strong><span>People scored</span></div>
+      </section>
+
+      <nav class="project-queue" aria-label="Projects in this planning room">
+        <span>Project queue</span><div class="project-queue-tabs" id="project-queue-tabs"></div>
+      </nav>
+
+      <div class="closed-banner" id="closed-banner" hidden>
+        <strong>Placement saved</strong><span>The leader has saved this project’s latest placement.</span>
+      </div>
+
+      <section class="room-layout">
+        <form class="room-card vote-card" id="vote-form">
+          <div class="room-card-head"><div><p class="eyebrow">Your perspective</p><h2>Score this project</h2></div><span class="step-pill">1–10</span></div>
+          <label class="room-field"><span>Your name <small>Optional</small></span><input id="voter-name" maxlength="50" placeholder="Leave blank for a random name"></label>
+          <div class="room-scores">
+            <label><span><b>Impact</b><small>Value created</small></span><output>7</output><input name="impact" type="range" min="1" max="10" value="7"></label>
+            <label><span><b>Urgency</b><small>Time sensitivity</small></span><output>7</output><input name="urgency" type="range" min="1" max="10" value="7"></label>
+            <label><span><b>Confidence</b><small>Evidence quality</small></span><output>7</output><input name="confidence" type="range" min="1" max="10" value="7"></label>
+            <label><span><b>Effort</b><small>Team cost</small></span><output>5</output><input name="effort" type="range" min="1" max="10" value="5"></label>
+          </div>
+          <button class="button primary room-submit" type="submit">Place my vote</button>
+          <p class="room-message" id="vote-message" role="status"></p>
+        </form>
+
+        <section class="room-card consensus-card">
+          <div class="room-card-head"><div><p class="eyebrow">Team view</p><h2>Where everyone sits</h2></div><div class="room-view-key"><span class="current-key"><i></i>Current project</span><span class="polling-label">Updates live</span></div></div>
+          <div class="room-matrix-wrap">
+            <span class="room-axis room-y">Impact</span>
+            <div class="room-matrix" id="room-matrix" aria-label="Team impact and urgency votes">
+              <div class="room-quadrant focus"><span class="quadrant-label">FOCUS NOW <button class="quadrant-info" type="button" aria-label="About Focus Now: High impact and high urgency. Prioritize this work immediately." data-tooltip="High impact and high urgency. Prioritize this work immediately."><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.25"></circle><path d="M8 7.25v3.5"></path><circle class="info-dot" cx="8" cy="4.75" r=".7"></circle></svg></button></span></div><div class="room-quadrant"><span class="quadrant-label">PLAN <button class="quadrant-info" type="button" aria-label="About Plan: High impact with lower urgency. Schedule this work for the right time." data-tooltip="High impact with lower urgency. Schedule this work for the right time."><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.25"></circle><path d="M8 7.25v3.5"></path><circle class="info-dot" cx="8" cy="4.75" r=".7"></circle></svg></button></span></div>
+              <div class="room-quadrant quick"><span class="quadrant-label">QUICK WINS <button class="quadrant-info" type="button" aria-label="About Quick Wins: Lower impact but high urgency. Complete quickly or delegate." data-tooltip="Lower impact but high urgency. Complete quickly or delegate."><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.25"></circle><path d="M8 7.25v3.5"></path><circle class="info-dot" cx="8" cy="4.75" r=".7"></circle></svg></button></span></div><div class="room-quadrant"><span class="quadrant-label">MONITOR <button class="quadrant-info" type="button" aria-label="About Monitor: Lower impact and lower urgency. Keep visible, but do not prioritize yet." data-tooltip="Lower impact and lower urgency. Keep visible, but do not prioritize yet."><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.25"></circle><path d="M8 7.25v3.5"></path><circle class="info-dot" cx="8" cy="4.75" r=".7"></circle></svg></button></span></div>
+              <div class="room-empty" id="room-empty"><strong id="room-empty-title">Waiting for the first vote</strong><span id="room-empty-copy">Votes stay private until the leader reveals them.</span></div>
+            </div>
+            <span class="room-axis room-x">Urgency</span>
+          </div>
+          <p class="leader-hint" id="leader-hint" hidden>Click a vote to adopt all four scores, or click anywhere in the matrix to choose impact and urgency.</p>
+        </section>
+
+        <aside class="room-card leader-card" id="leader-card" hidden>
+          <div class="room-card-head"><div><p class="eyebrow">Leader controls</p><h2>Make the call</h2></div><span class="leader-badge">Leader</span></div>
+          <p class="leader-copy">Reveal everyone’s estimates together, then choose a team member’s vote, use the group average, or set the project’s current scores.</p>
+          <div class="decision-scores" id="decision-scores">
+            <label><span>Impact</span><output>7</output><input name="impact" type="range" min="1" max="10" value="7"></label>
+            <label><span>Urgency</span><output>7</output><input name="urgency" type="range" min="1" max="10" value="7"></label>
+            <label><span>Confidence</span><output>7</output><input name="confidence" type="range" min="1" max="10" value="7"></label>
+            <label><span>Effort</span><output>5</output><input name="effort" type="range" min="1" max="10" value="5"></label>
+          </div>
+          <label class="room-field decision-comment"><span>Move comment <small>Optional</small></span><textarea id="decision-comment" maxlength="500" rows="3" placeholder="Why should the project move here?"></textarea></label>
+          <button class="button secondary room-secondary reveal-button" id="reveal-votes" type="button">Reveal votes</button>
+          <button class="button secondary room-secondary" id="use-average" type="button">Use group average</button>
+          <button class="button secondary room-secondary cancel-update" id="cancel-update" type="button">Cancel update</button>
+          <button class="button primary room-submit" id="apply-decision" type="button">Save placement</button>
+          <p class="room-message" id="leader-message" role="status"></p>
+        </aside>
+      </section>
+
+      <section class="room-card vote-list-card">
+        <div class="room-card-head"><div><p class="eyebrow">Scoreboard</p><h2>Team responses</h2></div><span id="spread-label">No responses yet</span></div>
+        <div class="vote-list" id="vote-list"></div>
+      </section>
+    </main>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  </body>
+</html>

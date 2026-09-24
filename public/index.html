@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="description" content="A living priority matrix for engineering projects.">
+    <title>Northstar — Engineering Priority Matrix</title>
+    <link rel="icon" href="/favicon.svg">
+    <script src="/theme.js"></script>
+    <link rel="stylesheet" href="/styles.css">
+    <script src="/app.js" type="module"></script>
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="/" aria-label="Northstar home"><span class="brand-mark">N</span><span>Northstar</span></a>
+        <div class="topbar-actions">
+          <span class="role-badge" id="current-user"></span>
+          <span class="save-status" id="save-status"><i></i> All changes saved</span>
+          <button class="theme-toggle" data-theme-toggle type="button" aria-label="Switch to dark mode" aria-pressed="false"><span class="theme-icon-light" aria-hidden="true">☀</span><span class="theme-icon-dark" aria-hidden="true">☾</span></button>
+          <details class="app-menu" id="app-menu">
+            <summary role="button" aria-label="Open main menu" aria-haspopup="true" aria-expanded="false" title="Menu"><span class="hamburger" aria-hidden="true"><i></i><i></i><i></i></span></summary>
+            <div class="app-menu-panel">
+              <a class="app-menu-item" href="/teams.html"><span aria-hidden="true">◎</span><strong>Teams</strong><small>View capacity</small></a>
+              <a class="app-menu-item" data-admin href="/users.html"><span aria-hidden="true">♙</span><strong>Users</strong><small>Manage access and roles</small></a>
+              <button class="app-menu-item" data-admin id="open-api-token" type="button"><span aria-hidden="true">⌁</span><strong>API access</strong><small>Generate a bearer token</small></button>
+              <button class="app-menu-item" data-admin id="open-data" type="button"><span aria-hidden="true">↕</span><strong>Data &amp; exports</strong><small>Backup or restore</small></button>
+              <button class="app-menu-item" data-admin id="open-planning" type="button"><span aria-hidden="true">◇</span><strong>Planning room</strong><small>Score projects together</small></button>
+              <button class="app-menu-item primary" data-admin id="add-project" type="button"><span aria-hidden="true">+</span><strong>Add project</strong><small>Create new work</small></button>
+              <button class="app-menu-item" id="sign-out" type="button"><span aria-hidden="true">↪</span><strong>Sign out</strong><small>End this session</small></button>
+            </div>
+          </details>
+        </div>
+      </header>
+
+      <section class="intro">
+        <div>
+          <p class="eyebrow">Portfolio view</p>
+          <h1>What deserves attention?</h1>
+          <p class="subtitle">Compare active work by impact and urgency. Re-score as the landscape changes.</p>
+        </div>
+        <div class="summary" aria-label="Portfolio summary">
+          <div><strong id="active-count">0</strong><span>Active</span></div>
+          <div><strong id="focus-count">0</strong><span>Focus now</span></div>
+          <div><strong id="team-count">0</strong><span>Teams</span></div>
+          <div><strong id="available-capacity">0</strong><span>People available</span></div>
+          <div><strong id="selected-capacity">0</strong><span>People capacity</span></div>
+        </div>
+      </section>
+
+      <nav class="toolbar" aria-label="Project filters">
+        <div class="tabs" role="group" aria-label="Filter by status">
+          <button class="tab active" data-status="All" type="button">All projects</button>
+          <button class="tab" data-status="Scheduled" type="button">Scheduled</button>
+          <button class="tab" data-status="Active" type="button">Active</button>
+          <button class="tab" data-status="On hold" type="button">On hold</button>
+          <button class="tab" data-status="Blocked" type="button">Blocked</button>
+          <button class="tab" data-status="Complete" type="button">Complete</button>
+        </div>
+        <div class="filter-fields">
+          <details class="team-filter" id="team-filter"><summary><span>Team</span><strong id="team-filter-label">All teams</strong></summary><div class="team-filter-menu" id="team-filter-menu"></div></details>
+          <label class="search"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="Search projects" aria-label="Search projects"></label>
+        </div>
+      </nav>
+
+      <section class="workspace">
+        <div class="matrix-card" id="priority-matrix-card">
+          <div class="matrix-head">
+            <div><h2>Priority matrix</h2><p>Drag a project to update impact and urgency</p></div>
+            <div class="matrix-controls">
+              <div class="matrix-key" aria-label="Project status colors">
+                <strong>Status</strong>
+                <span><i class="status-swatch to-plan"></i>To plan</span>
+                <span><i class="status-swatch planning"></i>Planning</span>
+                <span><i class="status-swatch active"></i>Active</span>
+                <span><i class="status-swatch hold"></i>On hold</span>
+                <span><i class="status-swatch blocked"></i>Blocked</span>
+                <span><i class="status-swatch complete"></i>Complete</span>
+              </div>
+              <div class="matrix-actions">
+                <label class="completed-toggle"><input id="show-completed" type="checkbox"> Show completed</label>
+                <button class="matrix-expand" id="toggle-matrix-presentation" type="button" aria-pressed="false" aria-label="Expand priority matrix for presentation"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 2H2v4M10 2h4v4M14 10v4h-4M6 14H2v-4"></path></svg><span>Present</span></button>
+              </div>
+            </div>
+          </div>
+          <div class="matrix-wrap">
+            <span class="axis-label y-axis">Impact</span>
+            <div class="matrix" id="matrix" aria-label="Impact and urgency priority matrix">
+              <div class="quadrant focus"><span class="quadrant-label">FOCUS NOW <button class="quadrant-info" type="button" aria-label="About Focus Now: High impact and high urgency. Prioritize this work immediately." data-tooltip="High impact and high urgency. Prioritize this work immediately."><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.25"></circle><path d="M8 7.25v3.5"></path><circle class="info-dot" cx="8" cy="4.75" r=".7"></circle></svg></button></span></div><div class="quadrant"><span class="quadrant-label">PLAN <button class="quadrant-info" type="button" aria-label="About Plan: High impact with lower urgency. Schedule this work for the right time." data-tooltip="High impact with lower urgency. Schedule this work for the right time."><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.25"></circle><path d="M8 7.25v3.5"></path><circle class="info-dot" cx="8" cy="4.75" r=".7"></circle></svg></button></span></div>
+              <div class="quadrant quick"><span class="quadrant-label">QUICK WINS <button class="quadrant-info" type="button" aria-label="About Quick Wins: Lower impact but high urgency. Complete quickly or delegate." data-tooltip="Lower impact but high urgency. Complete quickly or delegate."><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.25"></circle><path d="M8 7.25v3.5"></path><circle class="info-dot" cx="8" cy="4.75" r=".7"></circle></svg></button></span></div><div class="quadrant"><span class="quadrant-label">MONITOR <button class="quadrant-info" type="button" aria-label="About Monitor: Lower impact and lower urgency. Keep visible, but do not prioritize yet." data-tooltip="Lower impact and lower urgency. Keep visible, but do not prioritize yet."><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.25"></circle><path d="M8 7.25v3.5"></path><circle class="info-dot" cx="8" cy="4.75" r=".7"></circle></svg></button></span></div>
+              <div class="empty-state" id="empty-state">
+                <span class="empty-icon">✦</span><h3 id="matrix-empty-title">Map your first project</h3><p id="matrix-empty-copy">Add current work, score it, and let the trade-offs become visible.</p>
+                <button class="button secondary" id="empty-add" type="button">Add a project</button>
+              </div>
+            </div>
+            <span class="axis-label x-axis">Urgency</span>
+          </div>
+        </div>
+
+        <aside class="focus-card">
+          <p class="eyebrow">Focus now</p><h2>Highest priority</h2>
+          <div id="ranking" class="ranking"></div>
+          <p class="ranking-empty" id="ranking-empty">Your highest-priority work will appear here.</p>
+          <button class="text-button" id="show-all" type="button">View all projects <span>→</span></button>
+        </aside>
+      </section>
+
+      <section class="project-list" aria-labelledby="project-list-title">
+        <div class="list-head"><div><p class="eyebrow">Portfolio details</p><h2 id="project-list-title">All projects</h2></div><div class="list-actions"><label class="completed-toggle"><input id="show-archived" type="checkbox"> Show archived</label><span id="list-count">0 projects</span></div></div>
+        <div id="project-rows"></div>
+      </section>
+    </main>
+
+    <dialog id="project-dialog" aria-labelledby="dialog-title">
+      <form id="project-form" method="dialog">
+        <header class="dialog-head"><div><p class="eyebrow" id="dialog-kicker">New project</p><h2 id="dialog-title">Add to the matrix</h2></div><button class="icon-button" id="close-dialog" type="button" aria-label="Close">×</button></header>
+        <input type="hidden" name="id">
+        <div class="form-grid">
+          <label class="field"><span>Project name</span><input name="name" required maxlength="120" placeholder="e.g. Jfrog Migration" autofocus></label>
+          <label class="field"><span>Project ID <small>Optional</small></span><input name="projectId" maxlength="16" placeholder="e.g. JFM-42"></label>
+        </div>
+        <label class="field wide"><span>Source link <small>Optional · Jira, GitHub, or another project page</small></span><input name="externalUrl" type="url" maxlength="2048" inputmode="url" placeholder="https://jira.example.com/browse/EPIC-42"></label>
+        <div class="form-grid">
+          <label class="field"><span>Team</span><select name="team" required></select></label>
+          <label class="field"><span>Status</span><select name="status"><option>Scheduled</option><option selected>Active</option><option>On hold</option><option>Blocked</option><option>Complete</option></select></label>
+        </div>
+        <label class="field wide scheduled-stage-field" id="scheduled-stage-field" hidden><span>Scheduled stage</span><select name="scheduleStage"><option>To plan</option><option>Planning</option></select></label>
+        <label class="field wide" id="capacity-field"><span>People assigned <small id="capacity-help">Counts against team capacity</small></span><input name="capacity" type="number" min="0" max="999" step="1" value="0"></label>
+        <label class="field wide"><span>Context <small>Optional</small></span><textarea name="description" maxlength="1000" rows="3" placeholder="What outcome does this project unlock?"></textarea></label>
+        <label class="visibility-field"><input name="hiddenFromReadOnly" type="checkbox"><span><b>Hide from read-only users</b><small>Only admins will be able to see this project.</small></span></label>
+        <label class="field wide retrospective-field" id="retrospective-field" hidden><span>Retrospective <small>For completed projects</small></span><textarea name="retrospective" maxlength="5000" rows="6" placeholder="What went well? What did the team learn? What should change next time?"></textarea></label>
+        <fieldset class="scores"><legend>Score the project <small>1 = low, 10 = high</small></legend>
+          <label><span><b>Impact</b><small>Business or customer value</small></span><output>7</output><input name="impact" type="range" min="1" max="10" value="7"></label>
+          <label><span><b>Urgency</b><small>Time sensitivity</small></span><output>7</output><input name="urgency" type="range" min="1" max="10" value="7"></label>
+          <label><span><b>Confidence</b><small>Evidence behind the estimate</small></span><output>7</output><input name="confidence" type="range" min="1" max="10" value="7"></label>
+          <label><span><b>Effort</b><small>Team cost; lower improves rank</small></span><output>5</output><input name="effort" type="range" min="1" max="10" value="5"></label>
+        </fieldset>
+        <label class="field wide move-comment-field"><span>Move comment <small>Optional; saved only when impact or urgency changes</small></span><textarea name="moveComment" maxlength="500" rows="2" placeholder="Why is this project moving?"></textarea></label>
+        <p class="form-error" id="form-error" role="alert"></p>
+        <footer class="dialog-actions"><button class="delete-button" id="delete-project" type="button">Delete project</button><button class="archive-button" id="archive-project" type="button">Archive project</button><button class="history-button" id="view-history" type="button">View history</button><button class="poker-button" id="start-planning" type="button">♠ Planning room</button><span></span><button class="button secondary" id="cancel-dialog" type="button">Cancel</button><button class="button primary" type="submit">Save project</button></footer>
+      </form>
+    </dialog>
+    <dialog id="blocked-note-dialog" aria-labelledby="blocked-note-title">
+      <form class="share-panel" id="blocked-note-form">
+        <header class="dialog-head"><div><p class="eyebrow">Blocked status</p><h2 id="blocked-note-title">What is blocking this project?</h2></div><button class="icon-button" id="close-blocked-note" type="button" aria-label="Close">×</button></header>
+        <p class="share-copy">Add a note for the status export so stakeholders know what must be resolved.</p>
+        <label class="field wide"><span>Blocked note</span><textarea id="blocked-note-input" maxlength="2000" rows="4" required placeholder="Describe the blocker, owner, or next action"></textarea></label>
+        <p class="form-error" id="blocked-note-error" role="alert"></p>
+        <footer class="share-actions"><button class="button secondary" id="cancel-blocked-note" type="button">Cancel</button><button class="button primary" type="submit">Save as blocked</button></footer>
+      </form>
+    </dialog>
+    <dialog id="archive-note-dialog" aria-labelledby="archive-note-title">
+      <form class="share-panel" id="archive-note-form">
+        <header class="dialog-head"><div><p class="eyebrow" id="archive-note-kicker">Archive project</p><h2 id="archive-note-title">Why is this project being archived?</h2></div><button class="icon-button" id="close-archive-note" type="button" aria-label="Close">×</button></header>
+        <p class="share-copy" id="archive-note-copy">Add a note explaining why this project is leaving the active portfolio.</p>
+        <p class="action-note-project" id="archive-note-project"></p>
+        <label class="field wide"><span id="archive-note-label">Archive note</span><textarea id="archive-note-input" maxlength="2000" rows="4" required placeholder="Describe why this project is being archived"></textarea></label>
+        <p class="form-error" id="archive-note-error" role="alert"></p>
+        <footer class="share-actions"><button class="button secondary" id="cancel-archive-note" type="button">Cancel</button><button class="button primary" id="archive-note-submit" type="submit">Archive project</button></footer>
+      </form>
+    </dialog>
+    <dialog id="data-dialog" aria-labelledby="data-title">
+      <form class="backup-panel" id="restore-form">
+        <header class="dialog-head"><div><p class="eyebrow">Portfolio data</p><h2 id="data-title">Backup &amp; restore</h2></div><button class="icon-button" id="close-data" type="button" aria-label="Close">×</button></header>
+        <p class="share-copy">Export a complete JSON backup of projects, capacity, move history, retrospectives, and planning rooms.</p>
+        <div class="export-actions">
+          <a class="button secondary export-backup" href="/api/backup" download>Export complete backup</a>
+          <a class="button secondary export-backup" href="/api/status-export" download>Export active &amp; blocked status</a>
+        </div>
+        <hr class="backup-divider">
+        <label class="field"><span>Backup file</span><input id="backup-file" type="file" accept="application/json,.json"></label>
+        <p class="backup-warning"><strong>Restoring replaces all current data.</strong> If the file is invalid, Northstar will keep the existing portfolio unchanged.</p>
+        <label class="restore-confirm"><input id="restore-confirm" type="checkbox"> <span>I understand that the current portfolio will be replaced.</span></label>
+        <p class="form-error" id="restore-error" role="alert"></p>
+        <footer class="share-actions"><button class="button secondary" id="cancel-data" type="button">Cancel</button><button class="button primary" id="restore-backup" type="submit" disabled>Restore backup</button></footer>
+      </form>
+    </dialog>
+    <dialog id="api-token-dialog" aria-labelledby="api-token-title">
+      <div class="share-panel">
+        <header class="dialog-head"><div><p class="eyebrow">Developer access</p><h2 id="api-token-title">Bulk API token</h2></div><button class="icon-button" id="close-api-token" type="button" aria-label="Close">×</button></header>
+        <p class="share-copy">Generate a bearer token for the bulk project API. For security, Northstar stores only a hash and will show the token once.</p>
+        <p class="api-token-status" id="api-token-status" role="status" aria-live="polite">Checking token status…</p>
+        <div class="api-token-result" id="api-token-result" hidden>
+          <label class="field"><span>New API token</span><div class="link-field"><input id="api-token-value" readonly spellcheck="false"><button class="button secondary" id="copy-api-token" type="button">Copy</button></div></label>
+          <p class="backup-warning"><strong>Copy this token now.</strong> It cannot be shown again after this dialog closes.</p>
+        </div>
+        <p class="share-note">Generating a new token immediately revokes any current UI-generated token. If an environment token is configured, the new token replaces it.</p>
+        <p class="form-error" id="api-token-error" role="alert"></p>
+        <footer class="share-actions"><button class="button secondary" id="cancel-api-token" type="button">Close</button><button class="button primary" id="generate-api-token" type="button">Generate token</button></footer>
+      </div>
+    </dialog>
+    <dialog id="move-comment-dialog" aria-labelledby="move-comment-title">
+      <form id="move-comment-form">
+        <header class="dialog-head"><div><p class="eyebrow">Move project</p><h2 id="move-comment-title">Confirm new position</h2></div><button class="icon-button" id="close-move-comment" type="button" aria-label="Close">×</button></header>
+        <p class="share-copy" id="move-comment-copy"></p>
+        <label class="field wide"><span>Move comment <small>Optional</small></span><textarea id="move-comment-input" maxlength="500" rows="3" placeholder="Why is this project moving?"></textarea></label>
+        <p class="form-error" id="move-comment-error" role="alert"></p>
+        <footer class="share-actions"><button class="button secondary" id="cancel-move-comment" type="button">Cancel</button><button class="button primary" type="submit">Move project</button></footer>
+      </form>
+    </dialog>
+    <dialog id="history-dialog" aria-labelledby="history-title">
+      <div class="history-panel">
+        <header class="dialog-head"><div><p class="eyebrow">Position history</p><h2 id="history-title">Project moves</h2></div><button class="icon-button" id="close-history" type="button" aria-label="Close">×</button></header>
+        <p class="history-copy" id="history-copy"></p>
+        <div class="move-history" id="move-history"></div>
+        <footer class="share-actions"><button class="button secondary" id="close-history-footer" type="button">Done</button></footer>
+      </div>
+    </dialog>
+    <dialog id="planning-setup-dialog" aria-labelledby="planning-setup-title">
+      <form class="planning-setup" id="planning-setup-form">
+        <header class="dialog-head"><div><p class="eyebrow">New planning room</p><h2 id="planning-setup-title">Choose projects</h2></div><button class="icon-button" id="close-planning-setup" type="button" aria-label="Close">×</button></header>
+        <p class="share-copy">Everyone will use one link and move through the same project queue.</p>
+        <div class="planning-projects" id="planning-projects"></div>
+        <label class="guest-access-option"><input name="guestAccess" type="checkbox" checked><span><b>Allow guests without signing in</b><small>Anyone with the participant link can view this room and submit scores.</small></span></label>
+        <p class="form-error" id="planning-error" role="alert"></p>
+        <footer class="share-actions"><button class="button secondary" id="cancel-planning-setup" type="button">Cancel</button><button class="button primary" type="submit">Create planning room</button></footer>
+      </form>
+    </dialog>
+    <dialog id="share-dialog" aria-labelledby="share-title">
+      <div class="share-panel">
+        <header class="dialog-head"><div><p class="eyebrow">Planning room ready</p><h2 id="share-title">Invite your team</h2></div><button class="icon-button" id="close-share" type="button" aria-label="Close">×</button></header>
+        <p class="share-copy" id="share-access-copy">Send this link to everyone who should score the selected projects.</p>
+        <label class="field"><span id="share-link-label">Guest participant link · no login required</span><div class="link-field"><input id="share-link" readonly><button class="button secondary" id="copy-link" type="button">Copy</button></div></label>
+        <p class="share-note">For teammates on another device, open Northstar using this computer’s network address before copying the link.</p>
+        <footer class="share-actions"><button class="button secondary" id="close-share-footer" type="button">Done</button><a class="button primary" id="open-leader-room" href="#">Open leader room</a></footer>
+      </div>
+    </dialog>
+    <aside class="project-preview" id="project-preview" role="dialog" aria-modal="false" aria-labelledby="project-preview-title" hidden>
+      <p class="eyebrow">Project context</p>
+      <h3 id="project-preview-title"></h3>
+      <p class="project-preview-team" id="project-preview-team"></p>
+      <p class="project-preview-meta" id="project-preview-meta"></p>
+      <p class="project-preview-context" id="project-preview-context"></p>
+      <div class="project-preview-footer">
+        <span id="project-preview-scores"></span>
+        <a id="project-preview-source" target="_blank" rel="noopener noreferrer">View source <span aria-hidden="true">↗</span></a>
+        <small id="project-preview-no-source">No source link</small>
+      </div>
+    </aside>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  </body>
+</html>
