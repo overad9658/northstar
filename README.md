@@ -2,6 +2,14 @@
 
 A lightweight, persistent priority matrix for engineering portfolios. Projects are plotted by impact and urgency, ranked with confidence and effort, and saved to SQLite. An optional project ID can be shown on the matrix; when omitted, Northstar falls back to the project's initials.
 
+## Screenshots
+
+<p align="center">
+  <img src="docs/screenshots/priority-matrix.jpg" alt="Northstar priority matrix with projects plotted by impact and urgency" width="31%">
+  <img src="docs/screenshots/project-editor.jpg" alt="Northstar project editor" width="31%">
+  <img src="docs/screenshots/team-capacity.jpg" alt="Northstar team capacity configuration" width="31%">
+</p>
+
 Projects can include an optional external source link, such as a Jira epic or GitHub project. Source links appear beside the project name and open in a new browser tab.
 
 Planning rooms let a manager select up to 50 projects and share one participant link for collaborative scoring. Teammates move through the room’s project queue and submit impact, urgency, confidence, and effort independently. Scores stay private until the leader reveals each project’s round; the leader can then save a participant’s scores, the rounded group average, a custom placement, or cancel the update to keep the project’s current scores. Placements remain tentative until every project is placed, then the room updates the portfolio together.
