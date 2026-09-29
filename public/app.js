@@ -664,6 +664,7 @@ $('#toggle-matrix-presentation').addEventListener('click', () => {
 projectPreview.addEventListener('pointerenter', () => clearTimeout(previewHideTimer));
 projectPreview.addEventListener('pointerleave', () => hideProjectPreview());
 $('#empty-add').addEventListener('click', () => openDialog());
+$('#list-add-project').addEventListener('click', () => openDialog());
 $('#close-dialog').addEventListener('click', () => dialog.close());
 $('#cancel-dialog').addEventListener('click', () => dialog.close());
 $('#delete-project').addEventListener('click', deleteProject);
