@@ -68,6 +68,7 @@
 [data-theme="dark"] input::placeholder,[data-theme="dark"] textarea::placeholder { color:#72807b; }
 [data-theme="dark"] .retrospective-field { border-color:#5c5032; background:#29251b; }
 [data-theme="dark"] .capacity-locked input { color:#7f8c87; background:#222b28; }
+[data-theme="dark"] .visibility-field { background:#1b2421; }
 [data-theme="dark"] .backup-warning { color:#dec09d; border-color:#5e4935; background:#2d241b; }
 [data-theme="dark"] .backup-warning strong { color:#ebc79e; }
 [data-theme="dark"] .api-token-status { color:#b9d8cc; background:#22342e; }
