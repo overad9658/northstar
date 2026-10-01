@@ -87,8 +87,9 @@ use that setting in a deployed environment.
 
 Northstar supports multiple OpenID Connect (OIDC) and SAML 2.0 providers alongside local accounts.
 Configure AWS Cognito through OIDC, or connect directly to Okta, PingOne, and other compatible
-identity providers through OIDC or SAML. Provider buttons appear on the sign-in page after initial
-admin setup. See [SSO setup](docs/sso.md) for configuration, callback URLs, and provider examples.
+identity providers through OIDC or SAML. Admins can configure providers in **Menu → Single sign-on**;
+changes take effect immediately and persist across restarts. Provider buttons appear on the sign-in
+page after initial admin setup. See [SSO setup](docs/sso.md) for callback URLs and provider examples.
 
 ## Software bill of materials
 

@@ -5,13 +5,39 @@ sign-in. Multiple providers can be configured at once. Local sign-in remains ava
 
 ## Configure Northstar
 
+### From the hamburger menu
+
+Sign in as an admin and open **Menu → Single sign-on**. Enter Northstar's public URL, choose a provider
+from the list, and select **Add provider**. Enter its OIDC or SAML settings, then register the callback
+URL shown on the page in your identity provider. Select **Save SSO settings** to apply the changes.
+You can configure several providers, edit their labels and settings, or remove them from this page.
+
+Saved client secrets and SP private keys are never returned to the browser. Leave those fields blank
+to preserve a saved value, enter a replacement to rotate it, or select the removal checkbox to clear
+it. Clearing an OIDC secret also requires selecting public-client authentication; clearing an SP
+private key removes its paired public signing certificate. SAML IdP and SP public certificates can be
+viewed and edited. Provider IDs stay fixed in the form after saving because they identify persisted
+accounts and callback URLs.
+
+Settings are stored in the Northstar SQLite database and take precedence over environment/file
+configuration. Protect the database volume because it includes the saved provider credentials.
+Portfolio JSON exports do not include SSO configuration. Changes take effect immediately without
+restarting, invalidate pending sign-in requests, and preserve existing Northstar sessions and local
+sign-in. If another admin saves settings while your page is open, reload before saving your changes.
+
+### From deployment configuration
+
+Environment/file configuration remains available for deployments that have not saved settings through
+the menu. Once settings are saved through the menu, deployment environment changes do not override
+them; use the menu for subsequent changes.
+
 1. Create the initial local admin account before allowing SSO sign-in.
 2. Serve Northstar through HTTPS and set `PUBLIC_URL` to its external origin, such as
    `https://northstar.example.com`. Callback URLs use this setting, never incoming Host headers.
 3. Set `SSO_CONFIG_FILE` to a server-side JSON file containing an array of providers. Alternatively,
    set `SSO_PROVIDERS` to the JSON array itself. If both are set, the file takes precedence.
 4. Register the callback URLs and configure the applications in your identity providers.
-5. Restart Northstar after configuration changes.
+5. Restart Northstar after environment or file configuration changes.
 
 Configuration is validated on startup. Provider IDs must be unique lowercase names up to 32
 characters, beginning with a letter and containing letters, numbers, or hyphens. Keep an ID stable:
@@ -161,7 +187,8 @@ Northstar sessions last seven days and are not continuously revalidated against 
 Login requests expire after ten minutes, are bound to the initiating browser, and can be consumed
 only once. They are stored in SQLite and survive a process restart. This deployment still uses one
 Northstar SQLite database; independent replicas with separate databases cannot share SSO requests
-or sessions. Configuration changes require a restart. Keep a local admin for recovery.
+or sessions. Environment/file configuration changes require a restart; menu changes apply immediately.
+Keep a local admin for recovery.
 
 ## Docker Compose
 

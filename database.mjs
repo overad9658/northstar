@@ -136,6 +136,11 @@ function createRelatedTables(db) {
       expires_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_auth_sso_requests_expiry ON auth_sso_requests(expires_at);
+    CREATE TABLE IF NOT EXISTS auth_sso_settings (
+      id INTEGER PRIMARY KEY CHECK(id = 1),
+      config TEXT NOT NULL,
+      revision INTEGER NOT NULL DEFAULT 1
+    );
     CREATE TABLE IF NOT EXISTS project_moves (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,

@@ -1,0 +1,24 @@
+.sso-general>.field { margin-top:24px; max-width:620px; }
+.sso-general .subtitle { margin:10px 0 0; }
+.sso-provider-section { margin-top:20px; }
+.sso-add { display:flex; gap:12px; align-items:end; margin:24px 0; }
+.sso-add .field { flex:1; max-width:480px; margin:0; }
+.sso-add .button { min-height:39px; }
+.sso-provider { padding:22px 0; border-top:1px solid var(--line); }
+.sso-provider header { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:20px; }
+.sso-provider h3 { margin:0; font:500 22px Georgia,serif; }
+.sso-provider-grid { display:grid; grid-template-columns:1fr 1fr; gap:18px; }
+.sso-provider-grid .field { margin:0; min-width:0; }
+.sso-provider .field small,.sso-general .field small { color:var(--muted); font-size:11px; line-height:1.5; }
+.sso-provider .wide { grid-column:1/-1; }
+.sso-provider textarea { min-height:130px; resize:vertical; font-family:monospace; }
+.sso-provider input[readonly] { background:var(--paper); color:var(--muted); }
+.sso-checkbox { display:flex; align-items:center; gap:8px; color:var(--muted); font-size:12px; }
+.sso-checkbox input { width:auto; }
+.sso-endpoints { margin-top:20px; padding:16px; background:var(--paper); border:1px solid var(--line); border-radius:10px; }
+.sso-endpoints p { margin:0 0 8px; color:var(--muted); font-size:12px; }
+.sso-endpoints code { display:block; overflow-wrap:anywhere; color:var(--ink); font-size:12px; margin:5px 0 14px; }
+.sso-endpoints a { color:var(--green); }
+.sso-save { display:flex; align-items:center; justify-content:space-between; gap:20px; margin:24px 0 40px; }
+.sso-save p { margin:0; color:var(--muted); font-size:12px; }
+@media(max-width:620px) { .sso-provider-grid { grid-template-columns:1fr; }.sso-add,.sso-save { align-items:stretch; flex-direction:column; }.sso-general,.sso-provider-section { padding:20px; } }

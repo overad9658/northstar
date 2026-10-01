@@ -57,7 +57,7 @@ export function createAuthService(db, { disabled = process.env.AUTH_DISABLED ===
     const token = randomBytes(32).toString('base64url');
     db.prepare("INSERT INTO auth_sessions (token, user_id, expires_at) VALUES (?, ?, datetime('now', ?))")
       .run(token, userId, `+${sessionSeconds} seconds`);
-    const secure = secureCookies || Boolean(req.socket?.encrypted) || String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim() === 'https';
+    const secure = (typeof secureCookies === 'function' ? secureCookies() : secureCookies) || Boolean(req.socket?.encrypted) || String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim() === 'https';
     const cookies = res.getHeader('set-cookie') || [];
     res.setHeader('set-cookie', [...(Array.isArray(cookies) ? cookies : [cookies]), `northstar_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${sessionSeconds}${secure ? '; Secure' : ''}`]);
   }

@@ -19,7 +19,7 @@ RUN apk upgrade --no-cache \
 
 COPY --from=node-runtime /usr/local/bin/node /usr/local/bin/node
 COPY --from=app-dependencies /app/node_modules ./node_modules
-COPY package.json server.mjs api.mjs auth-service.mjs sso-service.mjs data-api.mjs backup-service.mjs database.mjs http-utils.mjs planning-service.mjs project-domain.mjs project-service.mjs team-service.mjs ./
+COPY package.json server.mjs api.mjs auth-service.mjs sso-service.mjs sso-settings.mjs data-api.mjs backup-service.mjs database.mjs http-utils.mjs planning-service.mjs project-domain.mjs project-service.mjs team-service.mjs ./
 COPY public ./public
 
 RUN mkdir -p /data && chown -R node:node /app /data

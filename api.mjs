@@ -4,12 +4,14 @@ import { json, readJson } from './http-utils.mjs';
 import { createPlanningService, PlanningError } from './planning-service.mjs';
 import { createProjectService, ProjectError } from './project-service.mjs';
 import { createTeamService } from './team-service.mjs';
-import { createSsoService, loadSsoConfig } from './sso-service.mjs';
+import { createSsoService } from './sso-service.mjs';
+import { createSsoSettings } from './sso-settings.mjs';
 
 export function createApi(db, { apiToken = process.env.API_TOKEN } = {}) {
-  const ssoConfig = loadSsoConfig();
-  const auth = createAuthService(db, { secureCookies: ssoConfig.publicUrl?.startsWith('https:') });
-  const sso = createSsoService(db, auth, ssoConfig);
+  const ssoSettings = createSsoSettings(db);
+  let ssoConfig = ssoSettings.load();
+  const auth = createAuthService(db, { secureCookies: () => ssoConfig.publicUrl?.startsWith('https:') });
+  let sso = createSsoService(db, auth, ssoConfig);
   const planning = createPlanningService(db);
   const projects = createProjectService(db);
   const teams = createTeamService(db);
@@ -19,6 +21,17 @@ export function createApi(db, { apiToken = process.env.API_TOKEN } = {}) {
 
   return async function api(req, res, url) {
     try {
+      if (url.pathname === '/api/admin/sso') {
+        requireAdmin(req);
+        res.setHeader('cache-control', 'no-store');
+        if (req.method === 'GET') return json(res, 200, ssoSettings.view()), true;
+        if (req.method === 'PUT') {
+          ssoConfig = ssoSettings.save(await readJson(req, 500_000));
+          sso = createSsoService(db, auth, ssoConfig);
+          return json(res, 200, ssoSettings.view()), true;
+        }
+        return json(res, 405, { error: 'Method not allowed.' }), true;
+      }
       if (await sso.handle(req, res, url)) return true;
       if (url.pathname === '/api/auth/status' && req.method === 'GET') return json(res, 200, { setupRequired: auth.setupRequired(), authenticated: Boolean(auth.userForRequest(req)), ssoProviders: sso.providers() }), true;
       if (url.pathname === '/api/auth/setup' && req.method === 'POST') return json(res, 201, auth.setup(await readJson(req), req, res)), true;

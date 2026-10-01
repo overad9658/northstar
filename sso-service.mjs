@@ -27,7 +27,7 @@ function secureUrl(value, field, allowLocal = false) {
 export function loadSsoConfig(env = process.env) {
   const providers = JSON.parse(env.SSO_CONFIG_FILE ? readFileSync(env.SSO_CONFIG_FILE, 'utf8') : env.SSO_PROVIDERS || '[]');
   if (!Array.isArray(providers)) throw new Error('SSO providers must be a JSON array.');
-  if (!providers.length) return { providers: [], publicUrl: null };
+  if (!providers.length && !env.PUBLIC_URL) return { providers: [], publicUrl: null };
   if (!env.PUBLIC_URL) throw new Error('PUBLIC_URL is required when SSO is configured.');
   const publicUrl = secureUrl(env.PUBLIC_URL, 'PUBLIC_URL', true);
   if (publicUrl.pathname !== '/' || publicUrl.search) throw new Error('PUBLIC_URL must be an origin without a path or query.');
@@ -36,7 +36,7 @@ export function loadSsoConfig(env = process.env) {
     if (typeof p[field] !== 'string' || !p[field].trim()) throw new Error(`SSO provider ${p.id} requires ${field}.`);
   };
   for (const p of providers) {
-    if (!p || !/^[a-z][a-z0-9-]{0,31}$/.test(p.id) || ids.has(p.id)) throw new Error('SSO provider IDs must be unique lowercase names (up to 32 characters).');
+    if (!p || typeof p.id !== 'string' || !/^[a-z][a-z0-9-]{0,31}$/.test(p.id) || ids.has(p.id)) throw new Error('SSO provider IDs must be unique lowercase names (up to 32 characters).');
     ids.add(p.id);
     if (!['oidc', 'saml'].includes(p.type)) throw new Error(`Unsupported SSO type for ${p.id}.`);
     if (p.type === 'oidc') {
@@ -157,7 +157,7 @@ export function createSsoService(db, auth, config = loadSsoConfig(), { discover 
         db.prepare('DELETE FROM auth_sso_requests WHERE expires_at <= ?').run(Date.now());
         if (db.prepare('SELECT COUNT(*) AS count FROM auth_sso_requests').get().count >= 1000) throw new AuthError(429, 'Too many pending sign-ins. Try again later.');
         const state = random(), browserToken = random();
-        const transaction = { returnTo: safeReturnTo(url.searchParams.get('returnTo')), createdAt: Date.now() };
+        const transaction = { returnTo: safeReturnTo(url.searchParams.get('returnTo')), createdAt: Date.now(), configFingerprint: digest(JSON.stringify(config)) };
         let target;
         try {
           if (p.type === 'oidc') {
@@ -186,6 +186,7 @@ export function createSsoService(db, auth, config = loadSsoConfig(), { discover 
           .get(state || '', p.id, digest(cookie(req, cookieName(p))), Date.now());
         if (!row) throw new AuthError(401, 'Invalid or expired SSO request.');
         const transaction = JSON.parse(row.payload);
+        if (transaction.configFingerprint !== digest(JSON.stringify(config))) throw new AuthError(401, 'SSO configuration has changed. Start a new sign-in.');
         let issuer, subject;
         if (p.type === 'oidc') {
           const callbackUrl = new URL(callback(p)); callbackUrl.search = url.search;
