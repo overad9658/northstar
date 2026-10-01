@@ -36,10 +36,10 @@ function cookieValue(req, name) {
 }
 
 function publicUser(row) {
-  return row && { id: row.id, username: row.username, role: row.role, createdAt: row.created_at };
+  return row && { id: row.id, username: row.username, role: row.role, createdAt: row.created_at, authType: row.password_hash === '' ? 'sso' : 'local' };
 }
 
-export function createAuthService(db, { disabled = process.env.AUTH_DISABLED === 'true' } = {}) {
+export function createAuthService(db, { disabled = process.env.AUTH_DISABLED === 'true', secureCookies = false } = {}) {
   const sessionSeconds = SESSION_DAYS * 24 * 60 * 60;
 
   function usersCount() { return db.prepare('SELECT COUNT(*) AS count FROM users').get().count; }
@@ -57,8 +57,9 @@ export function createAuthService(db, { disabled = process.env.AUTH_DISABLED ===
     const token = randomBytes(32).toString('base64url');
     db.prepare("INSERT INTO auth_sessions (token, user_id, expires_at) VALUES (?, ?, datetime('now', ?))")
       .run(token, userId, `+${sessionSeconds} seconds`);
-    const secure = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim() === 'https';
-    res.setHeader('set-cookie', `northstar_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${sessionSeconds}${secure ? '; Secure' : ''}`);
+    const secure = secureCookies || Boolean(req.socket?.encrypted) || String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim() === 'https';
+    const cookies = res.getHeader('set-cookie') || [];
+    res.setHeader('set-cookie', [...(Array.isArray(cookies) ? cookies : [cookies]), `northstar_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${sessionSeconds}${secure ? '; Secure' : ''}`]);
   }
   function clearSession(req, res) {
     const token = cookieValue(req, 'northstar_session');
@@ -83,6 +84,13 @@ export function createAuthService(db, { disabled = process.env.AUTH_DISABLED ===
     disabled,
     setupRequired: () => !disabled && usersCount() === 0,
     userForRequest,
+    establishSession(userId, req, res) {
+      const row = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
+      if (!row) throw new AuthError(401, 'Account no longer exists.');
+      db.prepare('DELETE FROM auth_sessions WHERE expires_at <= CURRENT_TIMESTAMP').run();
+      setSession(res, userId, req);
+      return publicUser(row);
+    },
     setup(input, req, res) {
       if (disabled || usersCount()) throw new AuthError(409, 'Initial setup is already complete.');
       const user = createUser(input, true); setSession(res, user.id, req); return user;
@@ -94,11 +102,12 @@ export function createAuthService(db, { disabled = process.env.AUTH_DISABLED ===
       setSession(res, row.id, req); return publicUser(row);
     },
     logout: clearSession,
-    listUsers: () => db.prepare('SELECT id, username, role, created_at AS createdAt FROM users ORDER BY username COLLATE NOCASE').all(),
+    listUsers: () => db.prepare('SELECT * FROM users ORDER BY username COLLATE NOCASE').all().map(publicUser),
     createUser,
     updateUser(id, input, currentUser) {
       const row = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
       if (!row) throw new AuthError(404, 'User not found.');
+      if (row.password_hash === '' && input.password) throw new AuthError(400, 'SSO account passwords are managed by the identity provider.');
       const username = input.username === undefined ? row.username : cleanUsername(input.username);
       const role = input.role === undefined ? row.role : String(input.role);
       if (!['admin', 'read_only'].includes(role)) throw new AuthError(400, 'Role must be admin or read_only.');

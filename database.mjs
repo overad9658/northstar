@@ -121,6 +121,21 @@ function createRelatedTables(db) {
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
     CREATE INDEX IF NOT EXISTS idx_auth_sessions_expiry ON auth_sessions(expires_at);
+    CREATE TABLE IF NOT EXISTS auth_identities (
+      provider_id TEXT NOT NULL,
+      issuer TEXT NOT NULL,
+      subject TEXT NOT NULL,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      PRIMARY KEY (provider_id, issuer, subject)
+    );
+    CREATE TABLE IF NOT EXISTS auth_sso_requests (
+      state TEXT PRIMARY KEY,
+      provider_id TEXT NOT NULL,
+      browser_hash TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      expires_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_auth_sso_requests_expiry ON auth_sso_requests(expires_at);
     CREATE TABLE IF NOT EXISTS project_moves (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,

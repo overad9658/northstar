@@ -19,6 +19,9 @@
 .auth-card .subtitle { margin:0 0 25px; color:var(--muted); font-size:12px; }
 .auth-card .field>span { color:var(--ink); }
 .auth-card .button { width:100%; justify-content:center; }
+.sso-providers { display:grid; gap:10px; margin-bottom:20px; }
+.sso-providers[hidden] { display:none; }
+.auth-card .sso-divider { margin:10px 0 0; text-align:center; }
 
 [data-theme="dark"] .auth-body {
   background:radial-gradient(circle at top,#1b2d27 0,transparent 48%),var(--paper);

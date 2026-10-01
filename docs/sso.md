@@ -1,0 +1,195 @@
+# Single sign-on setup
+
+Northstar supports OIDC Authorization Code sign-in with PKCE and SAML 2.0 service-provider-initiated
+sign-in. Multiple providers can be configured at once. Local sign-in remains available for recovery.
+
+## Configure Northstar
+
+1. Create the initial local admin account before allowing SSO sign-in.
+2. Serve Northstar through HTTPS and set `PUBLIC_URL` to its external origin, such as
+   `https://northstar.example.com`. Callback URLs use this setting, never incoming Host headers.
+3. Set `SSO_CONFIG_FILE` to a server-side JSON file containing an array of providers. Alternatively,
+   set `SSO_PROVIDERS` to the JSON array itself. If both are set, the file takes precedence.
+4. Register the callback URLs and configure the applications in your identity providers.
+5. Restart Northstar after configuration changes.
+
+Configuration is validated on startup. Provider IDs must be unique lowercase names up to 32
+characters, beginning with a letter and containing letters, numbers, or hyphens. Keep an ID stable:
+it forms part of the callback URL and persisted identity mapping. Only provider IDs, names, and
+protocol types are sent to the browser.
+
+Example environment:
+
+```sh
+PUBLIC_URL=https://northstar.example.com
+SSO_CONFIG_FILE=/run/secrets/northstar-sso.json
+COGNITO_CLIENT_SECRET=<app-client-secret>
+```
+
+Keep configuration containing secrets and certificates outside `public/` and source control. Secret
+and certificate file paths refer to the server/container filesystem. HTTP `PUBLIC_URL` is allowed
+only on localhost for OIDC development. OIDC issuer URLs always require HTTPS; SAML also requires
+HTTPS on Northstar because its cross-site POST callback uses a Secure, SameSite=None correlation
+cookie. The HTTPS reverse proxy must forward the callback routes, including SAML form POST bodies.
+
+## OIDC
+
+Example `/run/secrets/northstar-sso.json`:
+
+```json
+[
+  {
+    "id": "cognito",
+    "name": "Company sign-in",
+    "type": "oidc",
+    "issuer": "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_EXAMPLE",
+    "clientId": "your-app-client-id",
+    "clientSecretEnv": "COGNITO_CLIENT_SECRET",
+    "tokenEndpointAuthMethod": "client_secret_basic",
+    "scopes": "profile email"
+  }
+]
+```
+
+Register this exact sign-in redirect URI in the provider:
+
+```text
+https://northstar.example.com/api/auth/sso/cognito/callback
+```
+
+Select a web application with Authorization Code enabled and permit the `openid`, `profile`, and
+`email` scopes used above. Northstar always includes `openid`; `scopes` defaults to `profile email`.
+It sends an S256 PKCE challenge, state, and nonce and requests a query-string authorization-code
+response. ID-token signatures are checked against the provider's discovered JWKS, alongside issuer,
+audience, expiry, and nonce validation. Access and refresh tokens are not retained or exposed to the
+browser; Northstar creates its own session after successful authentication.
+
+`clientSecretEnv` reads the secret from the named environment variable. A `clientSecret` value can
+also be supplied directly in a protected configuration file. The default client authentication method
+is `client_secret_basic` when a secret is present, otherwise `none`. Set `tokenEndpointAuthMethod`
+to `client_secret_post` if required by your provider, or `none` for a public client using PKCE.
+
+### AWS Cognito
+
+Configure a user pool app client with Authorization Code and a managed-login domain. Use the **issuer
+from the user pool discovery document**, not the managed-login domain. The example above shows a
+traditional user pool issuer; deployments with updated issuer formats must use their actual issuer.
+Register the callback URI and enable the required scopes and identity providers on the app client.
+Cognito supports Basic client authentication at its token endpoint.
+
+Cognito acts as Northstar's OIDC provider. If your enterprise users authenticate through SAML to
+Cognito, configure that upstream federation in the user pool; Northstar still connects to Cognito
+over OIDC. See AWS's [federation endpoints](https://docs.aws.amazon.com/cognito/latest/developerguide/federation-endpoints.html)
+and [token endpoint](https://docs.aws.amazon.com/cognito/latest/developerguide/token-endpoint.html).
+
+### Okta and PingOne
+
+Create an OIDC web application, assign the intended users, and register
+`https://northstar.example.com/api/auth/sso/<provider-id>/callback`. Set the issuer to the exact value
+published in that application's authorization server discovery document:
+
+- Okta: commonly `https://your-org.okta.com` for the org authorization server, or
+  `https://your-org.okta.com/oauth2/default` for a custom authorization server. See
+  [Okta authorization servers](https://developer.okta.com/docs/concepts/auth-servers/).
+- PingOne: commonly `https://auth.pingone.com/<environment-id>/as`; regional or custom domains can
+  differ. See [PingOne token claims](https://developer.pingidentity.com/pingone-api/foundations/authentication-concepts/access-tokens-and-id-tokens/token-claims.html).
+
+Configure `clientId`, the client secret, and the client authentication method required by the app.
+
+## SAML 2.0
+
+Example provider, which can be included in the same configuration array as OIDC providers:
+
+```json
+{
+  "id": "okta-saml",
+  "name": "Okta",
+  "type": "saml",
+  "entryPoint": "https://your-org.okta.com/app/your-app/sso/saml",
+  "idpIssuer": "http://www.okta.com/your-idp-id",
+  "entityId": "https://northstar.example.com/saml/okta-saml",
+  "idpCertFile": "/run/secrets/okta-signing-cert.pem"
+}
+```
+
+Use the IdP's SSO endpoint, issuer/entity ID, and signing certificate from its metadata. `idpIssuer`
+is an identifier and may be an HTTP URI; it is not a fetched endpoint. Northstar checks it against
+the signed assertion issuer. Configure the IdP application using:
+
+| Setting | Value |
+| --- | --- |
+| ACS / single sign-on URL | `https://northstar.example.com/api/auth/sso/okta-saml/callback` |
+| SP entity ID / audience | The configured `entityId` |
+| SP metadata URL | `https://northstar.example.com/api/auth/sso/okta-saml/metadata` |
+| Response binding | HTTP-POST |
+| Assertion signature | Required, using SHA-256 or stronger |
+| NameID | Persistent, stable, unique per person |
+
+Northstar sends AuthnRequests through HTTP-Redirect. Both Okta and PingOne can be configured using
+the same standard fields. Assertion signatures are required; response signatures are optional unless
+`wantAuthnResponseSigned` is `true`. Audience, signed assertion issuer, recipient, timestamps, and
+`InResponseTo` are checked. Unsolicited IdP-initiated responses are rejected. To launch from an IdP
+dashboard, use a bookmark pointing at Northstar's `/api/auth/sso/<provider-id>/login` URL.
+
+Optional settings:
+
+- `idpCert`: PEM certificate text, or an array of PEM certificates for IdP signing-key rotation.
+  `idpCertFile` loads a single PEM certificate from a file.
+- `privateKeyFile` and `publicCertFile`: paired SP signing key and certificate if your IdP requires
+  signed AuthnRequests. Inline `privateKey` and `publicCert` are also supported. Requests use SHA-256,
+  and the public certificate is included in SP metadata.
+- `identifierFormat`: requested NameID format. It defaults to persistent; an email-address format
+  can be configured if required by the IdP. Transient NameIDs are rejected.
+- `wantAuthnResponseSigned`: set to `true` if the IdP signs both response and assertion.
+
+Encrypted SAML assertions and federated single logout are not implemented. Signing out clears only
+the Northstar session; the identity provider session can remain active.
+
+## Accounts, roles, and access removal
+
+The first successful SSO sign-in creates a **read-only** account. Identity mappings use provider ID,
+issuer, and stable OIDC `sub` or SAML NameID; email and username do not link to local accounts.
+IdP role/group claims do not grant admin access. An existing admin can rename the generated
+`sso-<provider-id>-<identity-hash>` username or promote the account in **Menu → Users**. Renaming it
+does not change its identity mapping. SSO account passwords remain managed by the provider.
+
+Only assign the IdP application to users who should have Northstar access. To revoke access, remove
+the IdP application assignment and delete the Northstar account to invalidate its active sessions.
+Deleting an account alone permits a new read-only account on its next successful IdP sign-in.
+Northstar sessions last seven days and are not continuously revalidated against the IdP.
+
+Login requests expire after ten minutes, are bound to the initiating browser, and can be consumed
+only once. They are stored in SQLite and survive a process restart. This deployment still uses one
+Northstar SQLite database; independent replicas with separate databases cannot share SSO requests
+or sessions. Configuration changes require a restart. Keep a local admin for recovery.
+
+## Docker Compose
+
+Mount a protected configuration file and any certificates/keys into the container. For example,
+merge this into the existing service configuration:
+
+```yaml
+services:
+  northstar:
+    environment:
+      PUBLIC_URL: https://northstar.example.com
+      SSO_CONFIG_FILE: /run/secrets/northstar-sso.json
+      COGNITO_CLIENT_SECRET: ${COGNITO_CLIENT_SECRET}
+    volumes:
+      - ./private/northstar-sso.json:/run/secrets/northstar-sso.json:ro
+      - ./private/okta-signing-cert.pem:/run/secrets/okta-signing-cert.pem:ro
+```
+
+Ensure mounted files are readable by the container's non-root user. Terminate HTTPS at your reverse
+proxy and route traffic to Northstar's port 3000.
+
+## Verification
+
+Run `pnpm check`. Automated tests use a mock OIDC server with signed ID tokens and real signed SAML
+assertions. They cover successful sign-in, callback replay, browser binding, request expiry, bad nonce,
+invalid signatures, audience mismatch, incorrect SAML issuer/recipient, and role isolation. The PEM
+files under `support/fixtures/sso-test-*` are public test credentials, never deployment secrets.
+
+Before enabling access in production, exercise sign-in and logout with a test user in your actual
+IdP tenant. Tenant-specific policies, assignments, domains, and certificate rotation must be
+configured there; they are not provisioned by Northstar.

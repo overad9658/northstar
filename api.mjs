@@ -4,9 +4,12 @@ import { json, readJson } from './http-utils.mjs';
 import { createPlanningService, PlanningError } from './planning-service.mjs';
 import { createProjectService, ProjectError } from './project-service.mjs';
 import { createTeamService } from './team-service.mjs';
+import { createSsoService, loadSsoConfig } from './sso-service.mjs';
 
 export function createApi(db, { apiToken = process.env.API_TOKEN } = {}) {
-  const auth = createAuthService(db);
+  const ssoConfig = loadSsoConfig();
+  const auth = createAuthService(db, { secureCookies: ssoConfig.publicUrl?.startsWith('https:') });
+  const sso = createSsoService(db, auth, ssoConfig);
   const planning = createPlanningService(db);
   const projects = createProjectService(db);
   const teams = createTeamService(db);
@@ -16,7 +19,8 @@ export function createApi(db, { apiToken = process.env.API_TOKEN } = {}) {
 
   return async function api(req, res, url) {
     try {
-      if (url.pathname === '/api/auth/status' && req.method === 'GET') return json(res, 200, { setupRequired: auth.setupRequired(), authenticated: Boolean(auth.userForRequest(req)) }), true;
+      if (await sso.handle(req, res, url)) return true;
+      if (url.pathname === '/api/auth/status' && req.method === 'GET') return json(res, 200, { setupRequired: auth.setupRequired(), authenticated: Boolean(auth.userForRequest(req)), ssoProviders: sso.providers() }), true;
       if (url.pathname === '/api/auth/setup' && req.method === 'POST') return json(res, 201, auth.setup(await readJson(req), req, res)), true;
       if (url.pathname === '/api/auth/login' && req.method === 'POST') return json(res, 200, auth.login(await readJson(req), req, res)), true;
       if (url.pathname === '/api/auth/logout' && req.method === 'POST') { auth.logout(req, res); return json(res, 200, { ok: true }), true; }

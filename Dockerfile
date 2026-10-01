@@ -2,6 +2,11 @@ ARG ALPINE_VERSION=3.24
 
 FROM node:24-alpine${ALPINE_VERSION} AS node-runtime
 
+FROM node-runtime AS app-dependencies
+WORKDIR /app
+COPY package.json pnpm-lock.yaml ./
+RUN npx --yes pnpm@11.19.0 install --prod --frozen-lockfile
+
 FROM alpine:${ALPINE_VERSION}
 
 WORKDIR /app
@@ -13,7 +18,8 @@ RUN apk upgrade --no-cache \
     && adduser -u 1000 -G node -s /bin/sh -D node
 
 COPY --from=node-runtime /usr/local/bin/node /usr/local/bin/node
-COPY package.json server.mjs api.mjs auth-service.mjs data-api.mjs backup-service.mjs database.mjs http-utils.mjs planning-service.mjs project-domain.mjs project-service.mjs team-service.mjs ./
+COPY --from=app-dependencies /app/node_modules ./node_modules
+COPY package.json server.mjs api.mjs auth-service.mjs sso-service.mjs data-api.mjs backup-service.mjs database.mjs http-utils.mjs planning-service.mjs project-domain.mjs project-service.mjs team-service.mjs ./
 COPY public ./public
 
 RUN mkdir -p /data && chown -R node:node /app /data

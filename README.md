@@ -52,10 +52,11 @@ docker compose down
 
 ## Run without Docker
 
-Node.js 22.13 or later is sufficient; there are no packages to install.
+Use Node.js 22.13 or later and pnpm 11.19.0.
 
 ```sh
-npm start
+pnpm install --frozen-lockfile
+pnpm start
 ```
 
 Run the automated tests with `npm test`, or run syntax checks and tests together with
@@ -81,6 +82,13 @@ and a leader URL as sensitive because the latter can finalize the room's placeme
 
 For isolated automated tests only, authentication can be bypassed with `AUTH_DISABLED=true`. Do not
 use that setting in a deployed environment.
+
+### Single sign-on
+
+Northstar supports multiple OpenID Connect (OIDC) and SAML 2.0 providers alongside local accounts.
+Configure AWS Cognito through OIDC, or connect directly to Okta, PingOne, and other compatible
+identity providers through OIDC or SAML. Provider buttons appear on the sign-in page after initial
+admin setup. See [SSO setup](docs/sso.md) for configuration, callback URLs, and provider examples.
 
 ## Software bill of materials
 
@@ -153,3 +161,7 @@ JavaScript module outside generated and persisted-data directories before runnin
 ## How ranking works
 
 Northstar weights impact and urgency at 40% each and confidence at 20%, then applies a modest effort adjustment. The matrix itself always uses the unmodified impact and urgency scores so movement remains easy to interpret.
+
+## License
+
+Northstar is licensed under the [MIT License](LICENSE).
