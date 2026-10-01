@@ -1,14 +1,24 @@
 {
   "name": "northstar-priority-matrix",
   "version": "1.0.0",
+  "license": "MIT",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22.13.0" },
+  "engines": {
+    "node": ">=22.13.0"
+  },
   "scripts": {
     "dev": "node --watch server.mjs",
     "start": "node server.mjs",
     "test": "node --test",
     "check": "node support/check-syntax.mjs && node --test",
     "sbom": "sh support/generate-sbom.sh"
+  },
+  "dependencies": {
+    "@node-saml/node-saml": "^5.1.0",
+    "openid-client": "^6.8.8"
+  },
+  "devDependencies": {
+    "xml-crypto": "^6.3.2"
   }
 }
