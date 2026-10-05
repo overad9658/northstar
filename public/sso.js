@@ -4,6 +4,8 @@ const form = document.querySelector('#sso-form'), list = document.querySelector(
 const error = document.querySelector('#sso-error'), publicUrl = document.querySelector('#public-url');
 let settings, providers = [], savedIds = new Set();
 const presets = {
+  google: { name: 'Google', type: 'google', clientId: '' },
+  github: { name: 'GitHub', type: 'github', clientId: '' },
   cognito: { name: 'AWS Cognito', type: 'oidc', issuer: '', clientId: '', tokenEndpointAuthMethod: 'client_secret_basic', scopes: 'profile email' },
   okta: { name: 'Okta', type: 'oidc', issuer: '', clientId: '', tokenEndpointAuthMethod: 'client_secret_basic', scopes: 'profile email' },
   pingone: { name: 'PingOne', type: 'oidc', issuer: '', clientId: '', tokenEndpointAuthMethod: 'client_secret_basic', scopes: 'profile email' },
@@ -31,7 +33,10 @@ function endpointMarkup(p) {
 function render() {
   list.innerHTML = providers.length ? providers.map((p, index) => {
     const common = field(p, 'name', 'Button label', { required: true }) + field(p, 'id', 'Provider ID', { required: true, placeholder: 'company' });
-    const protocol = p.type === 'oidc' ?
+    const protocol = ['google', 'github'].includes(p.type) ?
+      field(p, 'clientId', 'Client ID', { required: true }) +
+      field(p, 'clientSecret', 'Client secret', { type: 'password', secret: true, required: !p.hasClientSecret }) +
+      `<label class="sso-checkbox"><input name="clearClientSecret" type="checkbox" ${p.clearClientSecret ? 'checked' : ''}>Remove saved client secret</label>` : p.type === 'oidc' ?
       field(p, 'issuer', 'Issuer URL', { required: true, type: 'url', placeholder: 'https://your-provider.example.com' }) +
       field(p, 'clientId', 'Client ID', { required: true }) +
       field(p, 'clientSecret', 'Client secret', { type: 'password', secret: true }) +
@@ -45,7 +50,7 @@ function render() {
       field(p, 'idpCert', 'Identity provider signing certificate(s) · PEM', { required: true, textarea: true, wide: true }) +
       `<label class="sso-checkbox wide"><input name="wantAuthnResponseSigned" type="checkbox" ${p.wantAuthnResponseSigned ? 'checked' : ''}>Require signed responses as well as signed assertions</label>` +
       `<details class="wide"><summary>Optional: sign requests to the provider</summary><div class="sso-provider-grid">${field(p, 'privateKey', 'SP private signing key · PEM', { textarea: true, secret: true, wide: true })}${field(p, 'publicCert', 'SP public signing certificate · PEM', { textarea: true, wide: true })}<label class="sso-checkbox wide"><input name="clearPrivateKey" type="checkbox" ${p.clearPrivateKey ? 'checked' : ''}>Remove saved SP private key</label></div></details>`;
-    return `<section class="sso-provider" data-index="${index}"><header><h3>${escapeHtml(p.name || p.id)} · ${p.type === 'oidc' ? 'OIDC' : 'SAML 2.0'}</h3><button class="text-danger" data-remove="${index}" type="button">Remove provider</button></header><div class="sso-provider-grid">${common}${protocol}</div><div class="sso-endpoints">${endpointMarkup(p)}</div></section>`;
+    return `<section class="sso-provider" data-index="${index}"><header><h3>${escapeHtml(p.name || p.id)} · ${({ oidc: 'OIDC', saml: 'SAML 2.0', google: 'Google', github: 'GitHub' })[p.type]}</h3><button class="text-danger" data-remove="${index}" type="button">Remove provider</button></header><div class="sso-provider-grid">${common}${protocol}</div><div class="sso-endpoints">${endpointMarkup(p)}</div></section>`;
   }).join('') : '<div class="settings-empty"><h3>No identity providers</h3><p>Add a provider to offer single sign-on on the sign-in page.</p></div>';
   for (const input of list.querySelectorAll('input[name="id"]')) { input.pattern = '[a-z][a-z0-9-]{0,31}'; input.maxLength = 32; }
 }
@@ -63,6 +68,7 @@ function collect() {
 }
 function accept(value) {
   settings = value; providers = value.providers; savedIds = new Set(providers.map((p) => p.id)); publicUrl.value = value.publicUrl;
+  document.querySelector('#signup-allowed').checked = value.signupAllowed === true;
   document.querySelector('#sso-source').textContent = value.source === 'environment' ? 'Saving here stores settings in Northstar and replaces the environment configuration.' : 'Settings are saved in Northstar and persist across restarts.';
   form.hidden = false; render();
 }
@@ -84,7 +90,7 @@ form.addEventListener('submit', async (event) => {
   event.preventDefault(); collect(); error.textContent = '';
   const button = form.querySelector('button[type="submit"]'); button.disabled = true;
   try {
-    accept(await requestJson('/api/admin/sso', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ revision: settings.revision, publicUrl: publicUrl.value, providers }) }));
+    accept(await requestJson('/api/admin/sso', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ revision: settings.revision, publicUrl: publicUrl.value, signupAllowed: document.querySelector('#signup-allowed').checked, providers }) }));
     document.querySelector('#sso-status').textContent = 'SSO settings saved. Changes are active now.'; showToast('SSO settings saved');
   } catch (caught) { error.textContent = caught.message; error.scrollIntoView({ block: 'center' }); }
   finally { button.disabled = false; }

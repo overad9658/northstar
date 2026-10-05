@@ -1,6 +1,6 @@
 # Northstar
 
-A lightweight, persistent priority matrix for engineering portfolios. Projects are plotted by impact and urgency, ranked with confidence and effort, and saved to SQLite. An optional project ID can be shown on the matrix; when omitted, Northstar falls back to the project's initials.
+A lightweight, persistent priority matrix for engineering portfolios. Projects are plotted by impact and urgency, ranked with confidence and effort, and saved to SQLite by default, with optional PostgreSQL support. An optional project ID can be shown on the matrix; when omitted, Northstar falls back to the project's initials.
 
 ## Screenshots
 
@@ -64,6 +64,43 @@ Run the automated tests with `npm test`, or run syntax checks and tests together
 
 The SQLite file is created at `data/northstar.db`. Set `DATA_DIR` or `PORT` to override the defaults.
 
+### Optional PostgreSQL
+
+SQLite remains the default, even when `DATABASE_URL` is present. To use an existing PostgreSQL
+database, explicitly select the backend and supply its connection URL:
+
+```sh
+DATABASE_CLIENT=postgres DATABASE_URL='postgresql://northstar:password@localhost:5432/northstar' pnpm start
+```
+
+Northstar creates its tables on startup. Use a dedicated database; the database user must have
+permission to create tables and install the trusted `citext` extension, which preserves
+case-insensitive usernames and team names. If your provider restricts extension installation,
+have an administrator install `citext` first. TLS options can be supplied in the connection URL,
+for example `?sslmode=verify-full` with a trusted server certificate. `DATA_DIR` applies only to SQLite.
+
+For Docker Compose with a bundled PostgreSQL service:
+
+```sh
+POSTGRES_PASSWORD=change-me docker compose -f compose.yaml -f compose.postgres.yaml up --build
+```
+
+Use a strong password containing URL-safe characters (or percent-encode it in `DATABASE_URL`
+when connecting to an external database). PostgreSQL data persists in the `northstar-postgres`
+volume. Use the same Compose files when stopping this deployment. The plain `docker compose up`
+command continues to use SQLite unless `DATABASE_CLIENT` is explicitly set in the environment.
+
+Changing backends does not move existing records. Export a JSON backup from **Data** and restore
+it after switching to transfer portfolio data; accounts, sign-in sessions, API tokens, and SSO
+settings are not part of that backup and must be configured separately.
+
+PostgreSQL integration tests run when `TEST_DATABASE_URL` points to a dedicated empty test
+database. They replace portfolio data, so never use a production database:
+
+```sh
+TEST_DATABASE_URL='postgresql://northstar:password@localhost:5432/northstar_test' pnpm test
+```
+
 ## Authentication and roles
 
 On the first visit, Northstar asks you to create the first admin account. Passwords are stored as
@@ -85,11 +122,13 @@ use that setting in a deployed environment.
 
 ### Single sign-on
 
-Northstar supports multiple OpenID Connect (OIDC) and SAML 2.0 providers alongside local accounts.
+Northstar supports Google, GitHub, and multiple OpenID Connect (OIDC) and SAML 2.0 providers alongside local accounts.
 Configure AWS Cognito through OIDC, or connect directly to Okta, PingOne, and other compatible
 identity providers through OIDC or SAML. Admins can configure providers in **Menu → Single sign-on**;
 changes take effect immediately and persist across restarts. Provider buttons appear on the sign-in
-page after initial admin setup. See [SSO setup](docs/sso.md) for callback URLs and provider examples.
+page after initial admin setup. Set `SIGNUP_ALLOWED=true` or enable **Allow signup** in these settings
+to allow new local and provider accounts with read-only access. Signup defaults to disabled; existing
+users can still sign in. Saved settings override the environment variable. See [SSO setup](docs/sso.md) for callback URLs and provider examples.
 
 ## Software bill of materials
 
@@ -113,7 +152,7 @@ a different pinned Trivy container version.
 ## Bulk project API
 
 Generate a token from **Menu → API access** to enable the token-protected bulk project endpoints.
-Northstar shows the token once and stores only its SHA-256 hash in SQLite. Generating a replacement
+Northstar shows the token once and stores only its SHA-256 hash in the configured database. Generating a replacement
 immediately revokes the previous UI-generated token. You can alternatively set `API_TOKEN`; for
 Docker Compose, either export it in your shell or add it to a local `.env` file before starting the
 service. A UI-generated token takes precedence over `API_TOKEN`.

@@ -10,7 +10,7 @@ import { createSsoSettings } from './sso-settings.mjs';
 export function createApi(db, { apiToken = process.env.API_TOKEN } = {}) {
   const ssoSettings = createSsoSettings(db);
   let ssoConfig = ssoSettings.load();
-  const auth = createAuthService(db, { secureCookies: () => ssoConfig.publicUrl?.startsWith('https:') });
+  const auth = createAuthService(db, { signupAllowed: () => ssoConfig.signupAllowed === true, secureCookies: () => ssoConfig.publicUrl?.startsWith('https:') });
   let sso = createSsoService(db, auth, ssoConfig);
   const planning = createPlanningService(db);
   const projects = createProjectService(db);
@@ -33,8 +33,9 @@ export function createApi(db, { apiToken = process.env.API_TOKEN } = {}) {
         return json(res, 405, { error: 'Method not allowed.' }), true;
       }
       if (await sso.handle(req, res, url)) return true;
-      if (url.pathname === '/api/auth/status' && req.method === 'GET') return json(res, 200, { setupRequired: auth.setupRequired(), authenticated: Boolean(auth.userForRequest(req)), ssoProviders: sso.providers() }), true;
+      if (url.pathname === '/api/auth/status' && req.method === 'GET') return json(res, 200, { setupRequired: auth.setupRequired(), authenticated: Boolean(auth.userForRequest(req)), ssoProviders: sso.providers(), signupAllowed: auth.signupAllowed() }), true;
       if (url.pathname === '/api/auth/setup' && req.method === 'POST') return json(res, 201, auth.setup(await readJson(req), req, res)), true;
+      if (url.pathname === '/api/auth/signup' && req.method === 'POST') return json(res, 201, auth.signup(await readJson(req), req, res)), true;
       if (url.pathname === '/api/auth/login' && req.method === 'POST') return json(res, 200, auth.login(await readJson(req), req, res)), true;
       if (url.pathname === '/api/auth/logout' && req.method === 'POST') { auth.logout(req, res); return json(res, 200, { ok: true }), true; }
       if (url.pathname === '/api/auth/me' && req.method === 'GET') return json(res, 200, requireUser(req)), true;

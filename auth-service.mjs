@@ -39,7 +39,7 @@ function publicUser(row) {
   return row && { id: row.id, username: row.username, role: row.role, createdAt: row.created_at, authType: row.password_hash === '' ? 'sso' : 'local' };
 }
 
-export function createAuthService(db, { disabled = process.env.AUTH_DISABLED === 'true', secureCookies = false } = {}) {
+export function createAuthService(db, { disabled = process.env.AUTH_DISABLED === 'true', secureCookies = false, signupAllowed = process.env.SIGNUP_ALLOWED === 'true' } = {}) {
   const sessionSeconds = SESSION_DAYS * 24 * 60 * 60;
 
   function usersCount() { return db.prepare('SELECT COUNT(*) AS count FROM users').get().count; }
@@ -82,6 +82,7 @@ export function createAuthService(db, { disabled = process.env.AUTH_DISABLED ===
 
   return {
     disabled,
+    signupAllowed: () => !disabled && Boolean(typeof signupAllowed === 'function' ? signupAllowed() : signupAllowed),
     setupRequired: () => !disabled && usersCount() === 0,
     userForRequest,
     establishSession(userId, req, res) {
@@ -94,6 +95,12 @@ export function createAuthService(db, { disabled = process.env.AUTH_DISABLED ===
     setup(input, req, res) {
       if (disabled || usersCount()) throw new AuthError(409, 'Initial setup is already complete.');
       const user = createUser(input, true); setSession(res, user.id, req); return user;
+    },
+    signup(input, req, res) {
+      if (disabled || !(typeof signupAllowed === 'function' ? signupAllowed() : signupAllowed)) throw new AuthError(403, 'Account signup is disabled.');
+      if (!usersCount()) throw new AuthError(409, 'Create the first admin account before signing up.');
+      const user = createUser({ username: input.username, password: input.password, role: 'read_only' });
+      setSession(res, user.id, req); return user;
     },
     login(input, req, res) {
       const row = db.prepare('SELECT * FROM users WHERE username = ? COLLATE NOCASE').get(String(input.username || '').trim());

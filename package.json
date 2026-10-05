@@ -16,7 +16,8 @@
   },
   "dependencies": {
     "@node-saml/node-saml": "^5.1.0",
-    "openid-client": "^6.8.8"
+    "openid-client": "^6.8.8",
+    "pg": "^8.23.1"
   },
   "devDependencies": {
     "xml-crypto": "^6.3.2"

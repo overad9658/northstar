@@ -14,7 +14,7 @@ export function createSsoSettings(db) {
   function view() {
     const config = load(), row = stored();
     return {
-      publicUrl: config.publicUrl || '', revision: row?.revision || 0, source: row ? 'saved' : 'environment',
+      publicUrl: config.publicUrl || '', signupAllowed: config.signupAllowed === true, revision: row?.revision || 0, source: row ? 'saved' : 'environment',
       providers: config.providers.map((p) => {
         const safe = Object.fromEntries(fields.filter((key) => !secrets.includes(key) && p[key] !== undefined).map((key) => [key, p[key]]));
         for (const key of secrets) safe[`has${key[0].toUpperCase()}${key.slice(1)}`] = Boolean(p[key]);
@@ -28,6 +28,7 @@ export function createSsoSettings(db) {
     if (!Array.isArray(input.providers) || input.providers.length > 20) throw new AuthError(400, 'Configure up to 20 SSO providers.');
     if (typeof input.publicUrl !== 'string') throw new AuthError(400, 'Enter the public Northstar URL.');
     const current = load();
+    if (input.signupAllowed !== undefined && typeof input.signupAllowed !== 'boolean') throw new AuthError(400, 'Signup allowed must be a checkbox value.');
     try {
       const providers = input.providers.map((p) => {
         if (!p || typeof p !== 'object' || Array.isArray(p)) throw new Error('Invalid provider settings.');
@@ -52,7 +53,7 @@ export function createSsoSettings(db) {
         }
         return clean;
       });
-      const config = loadSsoConfig({ PUBLIC_URL: input.publicUrl.trim(), SSO_PROVIDERS: JSON.stringify(providers) });
+      const config = loadSsoConfig({ PUBLIC_URL: input.publicUrl.trim(), SIGNUP_ALLOWED: String(input.signupAllowed ?? current.signupAllowed ?? false), SSO_PROVIDERS: JSON.stringify(providers) });
       db.exec('BEGIN IMMEDIATE');
       try {
         db.prepare('INSERT INTO auth_sso_settings (id, config, revision) VALUES (1, ?, 1) ON CONFLICT(id) DO UPDATE SET config = excluded.config, revision = auth_sso_settings.revision + 1').run(JSON.stringify(config));

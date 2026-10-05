@@ -1,25 +1,25 @@
 # Single sign-on setup
 
-Northstar supports OIDC Authorization Code sign-in with PKCE and SAML 2.0 service-provider-initiated
-sign-in. Multiple providers can be configured at once. Local sign-in remains available for recovery.
+Northstar supports Google OIDC, GitHub OAuth, generic OIDC Authorization Code sign-in with PKCE,
+and SAML 2.0 service-provider-initiated sign-in. Multiple providers can be configured at once. Local sign-in remains available for recovery.
 
 ## Configure Northstar
 
 ### From the hamburger menu
 
 Sign in as an admin and open **Menu → Single sign-on**. Enter Northstar's public URL, choose a provider
-from the list, and select **Add provider**. Enter its OIDC or SAML settings, then register the callback
+from the list, and select **Add provider**. Enter its client credentials or OIDC/SAML settings, then register the callback
 URL shown on the page in your identity provider. Select **Save SSO settings** to apply the changes.
 You can configure several providers, edit their labels and settings, or remove them from this page.
 
 Saved client secrets and SP private keys are never returned to the browser. Leave those fields blank
 to preserve a saved value, enter a replacement to rotate it, or select the removal checkbox to clear
-it. Clearing an OIDC secret also requires selecting public-client authentication; clearing an SP
+it. Google and GitHub require a client secret; replace it or remove the provider. Clearing a generic OIDC secret also requires selecting public-client authentication; clearing an SP
 private key removes its paired public signing certificate. SAML IdP and SP public certificates can be
 viewed and edited. Provider IDs stay fixed in the form after saving because they identify persisted
 accounts and callback URLs.
 
-Settings are stored in the Northstar SQLite database and take precedence over environment/file
+Settings are stored in the configured Northstar database and take precedence over environment/file
 configuration. Protect the database volume because it includes the saved provider credentials.
 Portfolio JSON exports do not include SSO configuration. Changes take effect immediately without
 restarting, invalidate pending sign-in requests, and preserve existing Northstar sessions and local
@@ -37,7 +37,10 @@ them; use the menu for subsequent changes.
 3. Set `SSO_CONFIG_FILE` to a server-side JSON file containing an array of providers. Alternatively,
    set `SSO_PROVIDERS` to the JSON array itself. If both are set, the file takes precedence.
 4. Register the callback URLs and configure the applications in your identity providers.
-5. Restart Northstar after environment or file configuration changes.
+5. Set `SIGNUP_ALLOWED=true` to allow new accounts, or enable **Allow signup** in the admin settings.
+   It defaults to `false` and governs local signup and new identities from every provider. Existing
+   users, initial admin setup, and admin-created accounts remain available.
+6. Restart Northstar after environment or file configuration changes.
 
 Configuration is validated on startup. Provider IDs must be unique lowercase names up to 32
 characters, beginning with a letter and containing letters, numbers, or hyphens. Keep an ID stable:
@@ -49,6 +52,7 @@ Example environment:
 ```sh
 PUBLIC_URL=https://northstar.example.com
 SSO_CONFIG_FILE=/run/secrets/northstar-sso.json
+SIGNUP_ALLOWED=true
 COGNITO_CLIENT_SECRET=<app-client-secret>
 ```
 
@@ -57,6 +61,34 @@ and certificate file paths refer to the server/container filesystem. HTTP `PUBLI
 only on localhost for OIDC development. OIDC issuer URLs always require HTTPS; SAML also requires
 HTTPS on Northstar because its cross-site POST callback uses a Secure, SameSite=None correlation
 cookie. The HTTPS reverse proxy must forward the callback routes, including SAML form POST bodies.
+
+## Google and GitHub
+
+In **Menu → Single sign-on**, choose **Google** or **GitHub**, then enter the client ID and
+client secret. Google uses its fixed issuer and GitHub uses its fixed OAuth and user API endpoints.
+Register the displayed callback address with the provider. With the default provider IDs these are:
+
+- Google: `https://northstar.example.com/api/auth/sso/google/callback`
+- GitHub: `https://northstar.example.com/api/auth/sso/github/callback`
+
+For Google, create a web application OAuth client and register an authorized redirect URI.
+For GitHub, create an OAuth app and register its authorization callback URL. Both flows use
+PKCE and browser-bound, single-use state. See the [Google OIDC documentation](https://developers.google.com/identity/openid-connect/openid-connect)
+and [GitHub OAuth documentation](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps).
+
+Environment/file configuration can include these entries alongside the other providers:
+
+```json
+[
+  { "id": "google", "name": "Google", "type": "google", "clientId": "your-google-client-id", "clientSecretEnv": "GOOGLE_CLIENT_SECRET" },
+  { "id": "github", "name": "GitHub", "type": "github", "clientId": "your-github-client-id", "clientSecretEnv": "GITHUB_CLIENT_SECRET" }
+]
+```
+
+Set the referenced secret environment variables on the server. New accounts require signup to be
+allowed. When enabled, local users see **Create an account** on the login page, which uses
+`POST /api/auth/signup`; requested roles are ignored and new accounts always receive read-only access.
+Saved admin settings take precedence over `SIGNUP_ALLOWED`, just as they do over the provider list.
 
 ## OIDC
 
@@ -173,20 +205,22 @@ the Northstar session; the identity provider session can remain active.
 
 ## Accounts, roles, and access removal
 
-The first successful SSO sign-in creates a **read-only** account. Identity mappings use provider ID,
-issuer, and stable OIDC `sub` or SAML NameID; email and username do not link to local accounts.
+When signup is allowed, the first successful provider sign-in creates a **read-only** account.
+When signup is disabled, only previously mapped provider accounts can sign in. Identity mappings use provider ID,
+issuer, and stable OIDC `sub`, GitHub numeric user ID, or SAML NameID; email and username do not link to local accounts.
 IdP role/group claims do not grant admin access. An existing admin can rename the generated
 `sso-<provider-id>-<identity-hash>` username or promote the account in **Menu → Users**. Renaming it
 does not change its identity mapping. SSO account passwords remain managed by the provider.
 
 Only assign the IdP application to users who should have Northstar access. To revoke access, remove
 the IdP application assignment and delete the Northstar account to invalidate its active sessions.
-Deleting an account alone permits a new read-only account on its next successful IdP sign-in.
+Deleting an account alone permits a new read-only account on its next successful IdP sign-in
+if signup remains enabled.
 Northstar sessions last seven days and are not continuously revalidated against the IdP.
 
 Login requests expire after ten minutes, are bound to the initiating browser, and can be consumed
-only once. They are stored in SQLite and survive a process restart. This deployment still uses one
-Northstar SQLite database; independent replicas with separate databases cannot share SSO requests
+only once. They are stored in the configured database and survive a process restart. This deployment still uses one
+Northstar database; independent replicas with separate databases cannot share SSO requests
 or sessions. Environment/file configuration changes require a restart; menu changes apply immediately.
 Keep a local admin for recovery.
 

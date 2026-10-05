@@ -129,17 +129,18 @@ export function createBackupService(db) {
             DELETE FROM project_moves;
             DELETE FROM projects;
             DELETE FROM teams;
-            DELETE FROM sqlite_sequence WHERE name IN ('projects', 'teams', 'project_moves', 'planning_sessions', 'planning_votes');
           `);
+          if (db.dialect !== 'postgres') db.exec("DELETE FROM sqlite_sequence WHERE name IN ('projects', 'teams', 'project_moves', 'planning_sessions', 'planning_votes')");
           db.prepare('UPDATE portfolio_settings SET total_capacity = ? WHERE id = 1').run(backup.totalCapacity);
           insertBackupRows(db, backup);
           db.prepare('UPDATE portfolio_settings SET total_capacity = (SELECT COALESCE(SUM(capacity), 0) FROM teams) WHERE id = 1').run();
           verifyPortfolioConstraints(db);
+          if (db.dialect === 'postgres') db.resetSequences();
         });
       } catch (error) {
         throw new Error(`Backup could not be restored: ${error instanceof Error ? error.message : 'invalid data'}`);
       }
-      db.exec('PRAGMA optimize');
+      if (db.dialect !== 'postgres') db.exec('PRAGMA optimize');
       return {
         projects: backup.projects.length,
         moves: backup.projectMoves.length,

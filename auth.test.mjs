@@ -56,3 +56,29 @@ test('authentication enforces roles and hides selected projects from read-only u
     assert.equal((await fetch(`${base}/api/users`, { headers:{ cookie:viewerCookie } })).status, 403);
   } finally { await stopServer(server); await rm(dataDir, { recursive:true, force:true }); }
 });
+
+test('signup setting persists, rejects disabled signup and never grants admin access', async () => {
+  const dataDir = await mkdtemp(join(tmpdir(), 'northstar-signup-'));
+  const port = 37000 + (process.pid % 1000), base = `http://127.0.0.1:${port}`;
+  const env = { AUTH_DISABLED: 'false', SIGNUP_ALLOWED: 'false', SSO_PROVIDERS: '[]', SSO_CONFIG_FILE: '', PUBLIC_URL: '' };
+  let server = await startServer(dataDir, port, env);
+  const send = (path, body, cookie, method) => jsonRequest(`${base}${path}`, body, cookie, method);
+  try {
+    assert.equal((await fetch(`${base}/api/auth/status`).then(r => r.json())).signupAllowed, false);
+    assert.equal((await send('/api/auth/signup', { username: 'reader', password: 'read only password' })).status, 403);
+    const admin = sessionCookie(await send('/api/auth/setup', { username: 'owner', password: 'correct horse battery staple' }));
+    const view = await fetch(`${base}/api/admin/sso`, { headers: { cookie: admin } }).then(r => r.json());
+    assert.equal((await send('/api/admin/sso', { ...view, signupAllowed: 'true' }, admin, 'PUT')).status, 400);
+    assert.equal((await send('/api/admin/sso', { ...view, signupAllowed: true }, admin, 'PUT')).status, 200);
+    const signup = await send('/api/auth/signup', { username: 'reader', password: 'read only password', role: 'admin' });
+    assert.equal(signup.status, 201); assert.equal((await signup.json()).role, 'read_only');
+    assert.equal((await fetch(`${base}/api/users`, { headers: { cookie: sessionCookie(signup) } })).status, 403);
+    assert.equal((await send('/api/auth/signup', { username: 'reader', password: 'read only password' })).status, 409);
+    await stopServer(server); server = await startServer(dataDir, port, env);
+    assert.equal((await fetch(`${base}/api/auth/status`).then(r => r.json())).signupAllowed, true);
+    const saved = await fetch(`${base}/api/admin/sso`, { headers: { cookie: admin } }).then(r => r.json());
+    assert.equal((await send('/api/admin/sso', { ...saved, signupAllowed: false }, admin, 'PUT')).status, 200);
+    assert.equal((await send('/api/auth/signup', { username: 'another', password: 'read only password' })).status, 403);
+    assert.equal((await send('/api/auth/login', { username: 'reader', password: 'read only password' })).status, 200);
+  } finally { await stopServer(server); await rm(dataDir, { recursive: true, force: true }); }
+});

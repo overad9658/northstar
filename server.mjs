@@ -4,16 +4,17 @@ import { mkdirSync } from 'node:fs';
 import { extname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createApi } from './api.mjs';
-import { openDatabase } from './database.mjs';
+import { databaseConfig, openDatabase } from './database.mjs';
 import { json } from './http-utils.mjs';
 
 const root = fileURLToPath(new URL('.', import.meta.url));
 const publicDir = join(root, 'public');
 const dataDir = resolve(process.env.DATA_DIR || join(root, 'data'));
 const port = Number(process.env.PORT || 3000);
-mkdirSync(dataDir, { recursive: true });
+const dbConfig = databaseConfig();
+if (dbConfig.client === 'sqlite') mkdirSync(dataDir, { recursive: true });
 
-const db = openDatabase(join(dataDir, 'northstar.db'));
+const db = openDatabase(join(dataDir, 'northstar.db'), dbConfig);
 const api = createApi(db);
 
 const mime = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml' };

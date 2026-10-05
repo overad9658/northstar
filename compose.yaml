@@ -4,7 +4,10 @@ services:
     ports:
       - "3000:3000"
     environment:
+      SIGNUP_ALLOWED: ${SIGNUP_ALLOWED:-false}
       API_TOKEN: ${API_TOKEN:-}
+      DATABASE_CLIENT: ${DATABASE_CLIENT:-sqlite}
+      DATABASE_URL: ${DATABASE_URL:-}
     volumes:
       - northstar-data:/data
     restart: unless-stopped

@@ -1,0 +1,25 @@
+services:
+  northstar:
+    environment:
+      DATABASE_CLIENT: postgres
+      DATABASE_URL: postgresql://northstar:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/northstar
+    depends_on:
+      postgres:
+        condition: service_healthy
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: northstar
+      POSTGRES_USER: northstar
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+    volumes:
+      - northstar-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U northstar -d northstar]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  northstar-postgres:

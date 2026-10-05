@@ -27,7 +27,9 @@ function secureUrl(value, field, allowLocal = false) {
 export function loadSsoConfig(env = process.env) {
   const providers = JSON.parse(env.SSO_CONFIG_FILE ? readFileSync(env.SSO_CONFIG_FILE, 'utf8') : env.SSO_PROVIDERS || '[]');
   if (!Array.isArray(providers)) throw new Error('SSO providers must be a JSON array.');
-  if (!providers.length && !env.PUBLIC_URL) return { providers: [], publicUrl: null };
+  if (env.SIGNUP_ALLOWED !== undefined && !['true', 'false'].includes(env.SIGNUP_ALLOWED)) throw new Error('SIGNUP_ALLOWED must be true or false.');
+  const signupAllowed = env.SIGNUP_ALLOWED === 'true';
+  if (!providers.length && !env.PUBLIC_URL) return { providers: [], publicUrl: null, signupAllowed };
   if (!env.PUBLIC_URL) throw new Error('PUBLIC_URL is required when SSO is configured.');
   const publicUrl = secureUrl(env.PUBLIC_URL, 'PUBLIC_URL', true);
   if (publicUrl.pathname !== '/' || publicUrl.search) throw new Error('PUBLIC_URL must be an origin without a path or query.');
@@ -38,16 +40,21 @@ export function loadSsoConfig(env = process.env) {
   for (const p of providers) {
     if (!p || typeof p.id !== 'string' || !/^[a-z][a-z0-9-]{0,31}$/.test(p.id) || ids.has(p.id)) throw new Error('SSO provider IDs must be unique lowercase names (up to 32 characters).');
     ids.add(p.id);
-    if (!['oidc', 'saml'].includes(p.type)) throw new Error(`Unsupported SSO type for ${p.id}.`);
-    if (p.type === 'oidc') {
-      required(p, 'issuer'); required(p, 'clientId'); secureUrl(p.issuer, 'OIDC issuer');
+    if (!['oidc', 'saml', 'google', 'github'].includes(p.type)) throw new Error(`Unsupported SSO type for ${p.id}.`);
+    if (p.type === 'google') {
+      p.issuer = 'https://accounts.google.com';
+      p.tokenEndpointAuthMethod = 'client_secret_post';
+    }
+    if (['oidc', 'google', 'github'].includes(p.type)) {
+      required(p, 'clientId');
+      if (p.type !== 'github') { required(p, 'issuer'); secureUrl(p.issuer, 'OIDC issuer'); }
       if (p.clientSecretEnv) {
         p.clientSecret = env[p.clientSecretEnv];
         required(p, 'clientSecret');
       }
       p.tokenEndpointAuthMethod ||= p.clientSecret ? 'client_secret_basic' : 'none';
       if (!['client_secret_basic', 'client_secret_post', 'none'].includes(p.tokenEndpointAuthMethod)) throw new Error(`Unsupported tokenEndpointAuthMethod for ${p.id}.`);
-      if (p.tokenEndpointAuthMethod !== 'none') required(p, 'clientSecret');
+      if (p.tokenEndpointAuthMethod !== 'none' || p.type !== 'oidc') required(p, 'clientSecret');
       if (p.scopes !== undefined && typeof p.scopes !== 'string') throw new Error(`Invalid scopes for ${p.id}.`);
     } else {
       if (publicUrl.protocol !== 'https:') throw new Error('SAML requires an HTTPS PUBLIC_URL for browser correlation cookies.');
@@ -59,7 +66,7 @@ export function loadSsoConfig(env = process.env) {
       if (Boolean(p.privateKey) !== Boolean(p.publicCert)) throw new Error(`SSO provider ${p.id} requires both privateKey and publicCert for signed requests.`);
     }
   }
-  return { providers, publicUrl: publicUrl.origin };
+  return { providers, publicUrl: publicUrl.origin, signupAllowed };
 }
 
 function cookie(req, name) {
@@ -67,7 +74,7 @@ function cookie(req, name) {
   return part ? part.slice(name.length + 1) : '';
 }
 
-export function createSsoService(db, auth, config = loadSsoConfig(), { discover = oidc.discovery } = {}) {
+export function createSsoService(db, auth, config = loadSsoConfig(), { discover = oidc.discovery, fetch: providerFetch = globalThis.fetch } = {}) {
   const providers = new Map(config.providers.map((p) => [p.id, p]));
   const discoveries = new Map();
   const callback = (p) => `${config.publicUrl}/api/auth/sso/${p.id}/callback`;
@@ -114,6 +121,7 @@ export function createSsoService(db, auth, config = loadSsoConfig(), { discover 
     if (typeof subject !== 'string' || !subject || subject.length > 1024) throw new AuthError(401, 'The identity provider did not supply a stable user identifier.');
     const identity = db.prepare('SELECT user_id FROM auth_identities WHERE provider_id = ? AND issuer = ? AND subject = ?').get(p.id, issuer, subject);
     if (identity) return identity.user_id;
+    if (!auth.signupAllowed()) throw new AuthError(403, 'Account signup is disabled.');
     db.exec('BEGIN IMMEDIATE');
     try {
       const username = `sso-${p.id}-${digest(JSON.stringify([issuer, subject])).slice(0, 24)}`;
@@ -160,7 +168,13 @@ export function createSsoService(db, auth, config = loadSsoConfig(), { discover 
         const transaction = { returnTo: safeReturnTo(url.searchParams.get('returnTo')), createdAt: Date.now(), configFingerprint: digest(JSON.stringify(config)) };
         let target;
         try {
-          if (p.type === 'oidc') {
+          if (p.type === 'github') {
+            transaction.verifier = oidc.randomPKCECodeVerifier();
+            const authorize = new URL('https://github.com/login/oauth/authorize');
+            authorize.search = new URLSearchParams({ client_id: p.clientId, redirect_uri: callback(p), state,
+              scope: 'read:user', code_challenge: await oidc.calculatePKCECodeChallenge(transaction.verifier), code_challenge_method: 'S256' });
+            target = authorize.href;
+          } else if (['oidc', 'google'].includes(p.type)) {
             transaction.verifier = oidc.randomPKCECodeVerifier(); transaction.nonce = oidc.randomNonce();
             target = oidc.buildAuthorizationUrl(await discovery(p), {
               redirect_uri: callback(p), scope: [...new Set(['openid', ...(p.scopes || 'profile email').split(/\s+/).filter(Boolean)])].join(' '),
@@ -188,7 +202,25 @@ export function createSsoService(db, auth, config = loadSsoConfig(), { discover 
         const transaction = JSON.parse(row.payload);
         if (transaction.configFingerprint !== digest(JSON.stringify(config))) throw new AuthError(401, 'SSO configuration has changed. Start a new sign-in.');
         let issuer, subject;
-        if (p.type === 'oidc') {
+        if (p.type === 'github') {
+          if (url.searchParams.has('error') || url.searchParams.getAll('code').length !== 1 || !url.searchParams.get('code')) throw new AuthError(401, 'Invalid GitHub callback.');
+          const tokenResponse = await providerFetch('https://github.com/login/oauth/access_token', {
+            method: 'POST', redirect: 'error', signal: AbortSignal.timeout(10_000),
+            headers: { accept: 'application/json', 'content-type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({ client_id: p.clientId, client_secret: p.clientSecret, code: url.searchParams.get('code'), redirect_uri: callback(p), code_verifier: transaction.verifier }),
+          });
+          if (!tokenResponse.ok) throw new AuthError(401, 'GitHub token exchange failed.');
+          const token = await tokenResponse.json();
+          if (token.error || typeof token.access_token !== 'string' || !token.access_token || token.token_type?.toLowerCase() !== 'bearer') throw new AuthError(401, 'Invalid GitHub token.');
+          const userResponse = await providerFetch('https://api.github.com/user', {
+            redirect: 'error', signal: AbortSignal.timeout(10_000),
+            headers: { accept: 'application/vnd.github+json', authorization: `Bearer ${token.access_token}`, 'user-agent': 'Northstar' },
+          });
+          if (!userResponse.ok) throw new AuthError(401, 'GitHub identity lookup failed.');
+          const user = await userResponse.json();
+          if (!Number.isSafeInteger(user.id) || user.id <= 0) throw new AuthError(401, 'Invalid GitHub user identifier.');
+          issuer = 'https://github.com'; subject = String(user.id);
+        } else if (['oidc', 'google'].includes(p.type)) {
           const callbackUrl = new URL(callback(p)); callbackUrl.search = url.search;
           const tokens = await oidc.authorizationCodeGrant(await discovery(p), callbackUrl, {
             pkceCodeVerifier: transaction.verifier, expectedState: state, expectedNonce: transaction.nonce, idTokenExpected: true,

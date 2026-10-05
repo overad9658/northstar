@@ -27,7 +27,7 @@ function request(method = 'GET', cookie = '', body = '') {
   req.method = method; req.headers = { cookie, 'content-type': 'application/x-www-form-urlencoded' }; return req;
 }
 function setup(config, options) {
-  const db = openDatabase(':memory:'); const auth = createAuthService(db, { disabled: false, secureCookies: true });
+  const db = openDatabase(':memory:'); const auth = createAuthService(db, { disabled: false, signupAllowed: true, secureCookies: true });
   auth.setup({ username: 'owner', password: 'correct horse battery staple' }, request(), response());
   const service = createSsoService(db, auth, config, options);
   return { db, auth, service };
@@ -39,7 +39,7 @@ async function start(service, id, returnTo = '/') {
 }
 
 test('SSO configuration requires trusted URLs and secrets, and exposes only provider labels', () => {
-  assert.deepEqual(loadSsoConfig({}), { providers: [], publicUrl: null });
+  assert.deepEqual(loadSsoConfig({}), { providers: [], publicUrl: null, signupAllowed: false });
   const p = { id: 'okta', type: 'oidc', issuer: 'https://id.example', clientId: 'northstar', clientSecretEnv: 'OKTA_SECRET' };
   const env = { PUBLIC_URL: 'https://app.example', SSO_PROVIDERS: JSON.stringify([p]), OKTA_SECRET: 'secret' };
   const config = loadSsoConfig(env);
@@ -196,5 +196,57 @@ test('SAML accepts signed assertions and rejects replay, unsolicited, tampered a
       const freshAuth = createAuthService(freshDb, { disabled: false });
       await assert.rejects(createSsoService(freshDb, freshAuth, config).handle(request(), response(), new URL('https://app.example/api/auth/sso/saml/login')), /first local admin/);
     } finally { freshDb.close(); }
+  } finally { db.close(); }
+});
+
+test('Google and GitHub configuration uses trusted endpoints and requires credentials', () => {
+  const providers = ['google', 'github'].map(type => ({ id: type, type, clientId: 'northstar', clientSecret: 'secret' }));
+  const config = loadSsoConfig({ PUBLIC_URL: 'https://app.example', SIGNUP_ALLOWED: 'true', SSO_PROVIDERS: JSON.stringify(providers) });
+  assert.equal(config.signupAllowed, true);
+  assert.equal(config.providers[0].issuer, 'https://accounts.google.com');
+  assert.equal(config.providers[0].tokenEndpointAuthMethod, 'client_secret_post');
+  for (const p of providers) assert.throws(() => loadSsoConfig({ PUBLIC_URL: 'https://app.example', SSO_PROVIDERS: JSON.stringify([{ ...p, clientSecret: '' }]) }));
+  assert.throws(() => loadSsoConfig({ SIGNUP_ALLOWED: 'yes' }), /SIGNUP_ALLOWED/);
+});
+
+test('GitHub sign-in binds state and PKCE, prevents replay and enforces signup for new identities', async () => {
+  const config = loadSsoConfig({ PUBLIC_URL: 'https://app.example', SSO_PROVIDERS: JSON.stringify([{ id: 'github', name: 'GitHub', type: 'github', clientId: 'northstar', clientSecret: 'secret' }]) });
+  let calls = 0, userId = 123, failure = false, challenge;
+  const options = { fetch: async (url, init) => {
+    calls++;
+    assert.equal(init.redirect, 'error');
+    if (url === 'https://github.com/login/oauth/access_token') {
+      assert.equal(init.body.get('client_secret'), 'secret');
+      assert.equal(init.body.get('redirect_uri'), 'https://app.example/api/auth/sso/github/callback');
+      assert.equal(createHash('sha256').update(init.body.get('code_verifier')).digest('base64url'), challenge);
+      return Response.json(failure ? { error: 'bad_verification_code' } : { access_token: 'test-token', token_type: 'bearer' });
+    }
+    assert.equal(url, 'https://api.github.com/user');
+    assert.equal(init.headers.authorization, 'Bearer test-token');
+    return Response.json({ id: userId, login: 'owner', email: 'owner', role: 'admin' });
+  } };
+  const { db, auth, service } = setup(config, options);
+  const begin = async () => { const flow = await start(service, 'github', '/teams.html'); challenge = flow.url.searchParams.get('code_challenge'); assert.equal(flow.url.origin, 'https://github.com'); assert.equal(flow.url.searchParams.get('code_challenge_method'), 'S256'); return flow; };
+  const finish = async (flow, cookie = flow.cookie) => { const res = response(); await service.handle(request('GET', cookie), res, new URL(`https://app.example/api/auth/sso/github/callback?code=valid&state=${flow.url.searchParams.get('state')}`)); return res; };
+  try {
+    const flow = await begin();
+    assert.equal((await finish(flow, '')).headers.location, '/login.html?ssoError=1'); assert.equal(calls, 0);
+    const signedIn = await finish(flow); assert.equal(signedIn.headers.location, '/teams.html');
+    const session = signedIn.headers['set-cookie'].find(c => c.startsWith('northstar_session=')).split(';')[0];
+    const user = auth.userForRequest(request('GET', session)); assert.equal(user.role, 'read_only'); assert.notEqual(user.username, 'owner');
+    assert.equal((await finish(flow)).headers.location, '/login.html?ssoError=1'); assert.equal(calls, 2);
+    const deniedAuth = createAuthService(db, { disabled: false, signupAllowed: false });
+    const denied = createSsoService(db, deniedAuth, config, options);
+    const old = await start(denied, 'github'); challenge = old.url.searchParams.get('code_challenge');
+    const callback = async flow => { const res = response(); await denied.handle(request('GET', flow.cookie), res, new URL(`https://app.example/api/auth/sso/github/callback?code=valid&state=${flow.url.searchParams.get('state')}`)); return res; };
+    assert.equal((await callback(old)).headers.location, '/');
+    userId = 456;
+    const fresh = await start(denied, 'github'); challenge = fresh.url.searchParams.get('code_challenge');
+    assert.equal((await callback(fresh)).headers.location, '/login.html?ssoError=1');
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM users').get().n, 2);
+    failure = true; const bad = await begin(); assert.equal((await finish(bad)).headers.location, '/login.html?ssoError=1');
+    failure = false; userId = 'invalid'; const invalid = await begin(); assert.equal((await finish(invalid)).headers.location, '/login.html?ssoError=1');
+    const expired = await begin(); db.prepare('UPDATE auth_sso_requests SET expires_at = 0').run();
+    const before = calls; assert.equal((await finish(expired)).headers.location, '/login.html?ssoError=1'); assert.equal(calls, before);
   } finally { db.close(); }
 });

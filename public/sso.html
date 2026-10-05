@@ -9,11 +9,12 @@
     <section class="team-settings-card sso-general">
       <header class="settings-card-head"><div><h2>Northstar address</h2><p>Use the public address people visit to sign in.</p></div></header>
       <label class="field"><span>Public URL</span><input id="public-url" name="publicUrl" type="url" placeholder="https://northstar.example.com"><small>HTTPS is required for SAML. Localhost HTTP is supported for OIDC development.</small></label>
+      <label class="sso-checkbox"><input id="signup-allowed" name="signupAllowed" type="checkbox">Allow signup · new local and provider accounts receive read-only access</label>
       <p class="subtitle" id="sso-source"></p>
     </section>
     <section class="team-settings-card sso-provider-section">
       <header class="settings-card-head"><div><h2>Identity providers</h2><p>Add one or more providers. Local account sign-in remains available.</p></div></header>
-      <div class="sso-add"><label class="field"><span>Provider to add</span><select id="provider-preset"><option value="cognito">AWS Cognito · OIDC</option><option value="okta">Okta · OIDC</option><option value="pingone">PingOne · OIDC</option><option value="oidc">Other · OIDC</option><option value="saml">SAML 2.0 · Okta, PingOne or other</option></select></label><button class="button secondary" id="add-provider" type="button">Add provider</button></div>
+      <div class="sso-add"><label class="field"><span>Provider to add</span><select id="provider-preset"><option value="google">Google</option><option value="github">GitHub</option><option value="cognito">AWS Cognito · OIDC</option><option value="okta">Okta · OIDC</option><option value="pingone">PingOne · OIDC</option><option value="oidc">Other · OIDC</option><option value="saml">SAML 2.0 · Okta, PingOne or other</option></select></label><button class="button secondary" id="add-provider" type="button">Add provider</button></div>
       <div id="provider-list"></div>
     </section>
     <footer class="sso-save"><p id="sso-status" role="status">Changes take effect when you save. Keep a local admin account for recovery.</p><button class="button primary" type="submit">Save SSO settings</button></footer>

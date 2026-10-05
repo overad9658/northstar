@@ -1,4 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
+import { openPostgresDatabase } from './postgres-database.mjs';
 
 const projectsTableSql = `
   CREATE TABLE projects (
@@ -40,10 +41,12 @@ const planningVotesTableSql = `
   )`;
 
 function tableExists(db, table) {
+  if (db.dialect === 'postgres') return Boolean(db.prepare('SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = ?').get(table));
   return Boolean(db.prepare("SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?").get(table));
 }
 
 function hasColumn(db, table, column) {
+  if (db.dialect === 'postgres') return Boolean(db.prepare('SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = ? AND column_name = ?').get(table, column));
   return db.prepare(`PRAGMA table_info(${table})`).all().some((item) => item.name === column);
 }
 
@@ -227,7 +230,35 @@ function migratePlanningVotes(db) {
   `));
 }
 
-export function openDatabase(filePath) {
+export function databaseConfig(env = process.env) {
+  const client = (env.DATABASE_CLIENT || 'sqlite').trim().toLowerCase();
+  if (!['sqlite', 'postgres'].includes(client)) throw new Error('DATABASE_CLIENT must be sqlite or postgres.');
+  if (client === 'postgres' && !/^postgres(?:ql)?:\/\//.test(env.DATABASE_URL || '')) {
+    throw new Error('DATABASE_URL must be a PostgreSQL connection URL when DATABASE_CLIENT=postgres.');
+  }
+  return { client, connectionString: client === 'postgres' ? env.DATABASE_URL : undefined };
+}
+
+export function openDatabase(filePath, { client = 'sqlite', connectionString } = {}) {
+  if (client === 'postgres') {
+    const db = openPostgresDatabase(connectionString);
+    try {
+      transaction(db, () => {
+        db.exec('CREATE EXTENSION IF NOT EXISTS citext');
+        db.exec(projectsTableSql.replace('CREATE TABLE projects', 'CREATE TABLE IF NOT EXISTS projects'));
+        createRelatedTables(db);
+        migrateTeams(db);
+        migratePlanningVotes(db);
+        db.exec(`
+          CREATE INDEX IF NOT EXISTS idx_planning_room_projects ON planning_session_projects(session_id, position);
+          CREATE INDEX IF NOT EXISTS idx_planning_votes_session_project ON planning_votes(session_id, project_id, updated_at);
+          CREATE INDEX IF NOT EXISTS idx_project_moves_project_date ON project_moves(project_id, moved_at DESC, id DESC);
+        `);
+      });
+      return db;
+    } catch (error) { db.close(); throw error; }
+  }
+  if (client !== 'sqlite') throw new Error('Unsupported database client.');
   const db = new DatabaseSync(filePath);
   db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
   migrateProjects(db);

@@ -3,7 +3,18 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { openDatabase, transaction } from './database.mjs';
+import { databaseConfig, openDatabase, transaction } from './database.mjs';
+
+test('database configuration keeps SQLite as the default and validates PostgreSQL opt-in', () => {
+  assert.deepEqual(databaseConfig({}), { client: 'sqlite', connectionString: undefined });
+  assert.equal(databaseConfig({ DATABASE_URL: 'postgresql://unused' }).client, 'sqlite');
+  assert.equal(databaseConfig({ DATABASE_CLIENT: 'sqlite', DATABASE_URL: 'invalid' }).client, 'sqlite');
+  assert.deepEqual(databaseConfig({ DATABASE_CLIENT: 'postgres', DATABASE_URL: 'postgresql://localhost/northstar' }), {
+    client: 'postgres', connectionString: 'postgresql://localhost/northstar',
+  });
+  assert.throws(() => databaseConfig({ DATABASE_CLIENT: 'postgres' }), /DATABASE_URL/);
+  assert.throws(() => databaseConfig({ DATABASE_CLIENT: 'mysql' }), /DATABASE_CLIENT/);
+});
 
 test('openDatabase creates the current schema and records its version', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'northstar-schema-'));
