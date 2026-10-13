@@ -47,7 +47,8 @@
 .project-dot b { display:block; max-width:100%; overflow:hidden; text-overflow:ellipsis; font-size:9px; line-height:1; pointer-events:none; }
 .project-dot.wide-id { width:auto; min-width:42px; max-width:96px; padding:0 9px; border-radius:20px; }
 .project-dot.wide-id b { white-space:nowrap; }
-.project-dot span { position:absolute; left:50%; top:39px; transform:translateX(-50%); width:132px; color:#45524e; font-size:9px; font-weight:750; line-height:1.2; text-shadow:0 1px #fff; pointer-events:none; }
+.project-dot span { position:absolute; left:50%; top:39px; transform:translateX(-50%); width:132px; color:#45524e; font-size:9px; font-weight:750; line-height:1.2; text-shadow:0 1px #fff; pointer-events:none; opacity:0; visibility:hidden; }
+.project-dot:hover span,.project-dot:focus-visible span { opacity:1; visibility:visible; }
 .project-dot.status-scheduled-to-plan { --project:#8aa0c7; }.project-dot.status-scheduled-planning { --project:#6659a8; }.project-dot.status-active { --project:#2f7660; }.project-dot.status-hold { --project:#c28536; }.project-dot.status-blocked { --project:#aa5549; }.project-dot.status-complete { --project:#7c8790; }
 .project-preview { position:fixed; z-index:140; width:min(320px,calc(100vw - 24px)); max-height:calc(100vh - 24px); max-height:calc(100dvh - 24px); padding:18px; border:1px solid var(--line); border-radius:14px; color:var(--ink); background:var(--white); box-shadow:0 18px 54px rgb(18 31 27 / 24%); overflow:auto; }
 .project-preview[hidden] { display:none; }
