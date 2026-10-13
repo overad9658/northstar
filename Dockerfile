@@ -9,6 +9,10 @@ RUN npx --yes pnpm@11.19.0 install --prod --frozen-lockfile
 
 FROM alpine:${ALPINE_VERSION}
 
+LABEL org.opencontainers.image.source="https://github.com/overad9658/northstar" \
+      org.opencontainers.image.description="Northstar: a lightweight, persistent priority matrix for engineering portfolios." \
+      org.opencontainers.image.licenses="MIT"
+
 WORKDIR /app
 ENV NODE_ENV=production DATA_DIR=/data PORT=3000
 

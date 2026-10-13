@@ -66,5 +66,7 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.metadata.outputs.tags }}
           labels: ${{ steps.metadata.outputs.labels }}
+          annotations: |
+            index:org.opencontainers.image.description=Northstar: a lightweight, persistent priority matrix for engineering portfolios.
           cache-from: type=gha
           cache-to: type=gha,mode=max
