@@ -33,6 +33,11 @@
         <p class="form-error" id="card-error" role="alert"></p>
         <footer class="dialog-actions"><button class="delete-button" id="delete-card" type="button">Delete card</button><span></span><button class="button secondary" id="cancel-card" type="button">Cancel</button><button class="button primary" type="submit">Save card</button></footer>
       </form>
+      <section class="kanban-notes" id="card-notes" hidden aria-labelledby="card-notes-title">
+        <div class="kanban-notes-head"><h3 id="card-notes-title">Notes</h3><span id="note-count">0 notes</span></div>
+        <div id="note-list" class="kanban-note-list"></div>
+        <form id="note-form"><label class="field"><span>Add a note</span><textarea name="body" maxlength="2000" rows="3" required placeholder="Add an update or reminder"></textarea></label><p class="form-error" id="note-error" role="alert"></p><button class="button secondary" type="submit">Add note</button></form>
+      </section>
     </dialog>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
   </body>

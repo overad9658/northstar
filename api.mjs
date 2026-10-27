@@ -88,6 +88,16 @@ export function createApi(db, { apiToken = process.env.API_TOKEN } = {}) {
         return json(res, 405, { error: 'Method not allowed.' }), true;
       }
       const cardMatch = url.pathname.match(/^\/api\/kanban\/cards(?:\/(\d+))?$/);
+      const noteMatch = url.pathname.match(/^\/api\/kanban\/cards\/(\d+)\/notes(?:\/(\d+))?$/);
+      if (noteMatch) {
+        const cardId = Number(noteMatch[1]);
+        const noteId = noteMatch[2] ? Number(noteMatch[2]) : null;
+        if (req.method === 'GET' && !noteId) return json(res, 200, kanban.listNotes(cardId, { includeHidden: user.role === 'admin' })), true;
+        requireAdmin(req);
+        if (req.method === 'POST' && !noteId) return json(res, 201, kanban.createNote(cardId, await readJson(req))), true;
+        if (req.method === 'DELETE' && noteId) { kanban.deleteNote(cardId, noteId); res.writeHead(204); res.end(); return true; }
+        return json(res, 405, { error: 'Method not allowed.' }), true;
+      }
       if (cardMatch) {
         requireAdmin(req);
         const id = cardMatch[1] ? Number(cardMatch[1]) : null;

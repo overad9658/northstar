@@ -37,6 +37,13 @@ export function createKanbanService(db) {
     if (!db.prepare('SELECT 1 FROM projects WHERE id = ?').get(id)) throw new KanbanError(400, 'Project not found.');
     return id;
   };
+  const visibleCard = (id, includeHidden) => {
+    const row = db.prepare(`
+      SELECT c.id FROM kanban_cards c LEFT JOIN projects p ON p.id = c.project_id
+      WHERE c.id = ? ${includeHidden ? '' : 'AND (p.id IS NULL OR p.hidden_from_read_only = 0)'}
+    `).get(id);
+    if (!row) throw new KanbanError(404, 'Card not found.');
+  };
   const nextPosition = (table, where = '', value) => db.prepare(`SELECT COALESCE(MAX(position), -1) + 1 AS next FROM ${table} ${where}`).get(...(value === undefined ? [] : [value])).next;
 
   return {
@@ -45,7 +52,8 @@ export function createKanbanService(db) {
       const cards = db.prepare(`
         SELECT c.id, c.column_id AS columnId, c.project_id AS projectId, c.title, c.description,
           c.position, c.created_at AS createdAt, c.updated_at AS updatedAt,
-          p.name AS projectName, p.project_id AS projectCode
+          p.name AS projectName, p.project_id AS projectCode,
+          (SELECT COUNT(*) FROM kanban_card_notes n WHERE n.card_id = c.id) AS noteCount
         FROM kanban_cards c LEFT JOIN projects p ON p.id = c.project_id
         ${includeHidden ? '' : 'WHERE p.id IS NULL OR p.hidden_from_read_only = 0'}
         ORDER BY c.column_id, c.position, c.id
@@ -92,6 +100,22 @@ export function createKanbanService(db) {
     deleteCard(id) {
       card(id);
       db.prepare('DELETE FROM kanban_cards WHERE id = ?').run(id);
+    },
+    listNotes(cardId, { includeHidden = false } = {}) {
+      visibleCard(cardId, includeHidden);
+      return db.prepare('SELECT id, card_id AS cardId, body, created_at AS createdAt FROM kanban_card_notes WHERE card_id = ? ORDER BY created_at, id').all(cardId);
+    },
+    createNote(cardId, input) {
+      card(cardId);
+      const body = requiredText(input?.body, 'Note', 2000);
+      const result = db.prepare('INSERT INTO kanban_card_notes (card_id, body) VALUES (?, ?)').run(cardId, body);
+      return db.prepare('SELECT id, card_id AS cardId, body, created_at AS createdAt FROM kanban_card_notes WHERE id = ?').get(result.lastInsertRowid);
+    },
+    deleteNote(cardId, noteId) {
+      card(cardId);
+      if (!db.prepare('DELETE FROM kanban_card_notes WHERE id = ? AND card_id = ?').run(noteId, cardId).changes) {
+        throw new KanbanError(404, 'Note not found.');
+      }
     },
   };
 }

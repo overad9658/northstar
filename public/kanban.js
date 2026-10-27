@@ -6,6 +6,10 @@ const form = document.querySelector('#card-form');
 const columnForm = document.querySelector('#column-form');
 const boardError = document.querySelector('#board-error');
 const cardError = document.querySelector('#card-error');
+const notesSection = document.querySelector('#card-notes');
+const noteForm = document.querySelector('#note-form');
+const noteList = document.querySelector('#note-list');
+const noteError = document.querySelector('#note-error');
 let data = { columns: [], cards: [] };
 let projects = [];
 let canEdit = false;
@@ -24,9 +28,10 @@ function render() {
     const cards = data.cards.filter((card) => card.columnId === column.id);
     return `<section class="kanban-column" data-column-id="${column.id}" aria-label="${escapeHtml(column.name)}">
       <header class="kanban-column-head"><div><h2>${escapeHtml(column.name)}</h2><span>${cards.length}</span></div>${canEdit ? `<div class="kanban-column-actions"><button type="button" class="column-rename" aria-label="Rename ${escapeHtml(column.name)}" title="Rename column">✎</button><button type="button" class="column-delete" aria-label="Delete ${escapeHtml(column.name)}" title="Delete column">×</button></div>` : ''}</header>
-      <div class="kanban-card-list">${cards.map((card) => `<article class="kanban-card" data-card-id="${card.id}" ${canEdit ? 'draggable="true" tabindex="0" role="button"' : ''} aria-label="${escapeHtml(card.title)}">
+      <div class="kanban-card-list">${cards.map((card) => `<article class="kanban-card" data-card-id="${card.id}" ${canEdit ? 'draggable="true"' : ''} tabindex="0" role="button" aria-label="${escapeHtml(card.title)}">
         <h3>${escapeHtml(card.title)}</h3>${card.description ? `<p>${escapeHtml(card.description)}</p>` : ''}
         ${card.projectId ? `<span class="kanban-project-tag">${escapeHtml(card.projectCode || card.projectName || 'Project')}<span>${card.projectCode ? escapeHtml(card.projectName) : ''}</span></span>` : '<span class="kanban-general-tag">General to do</span>'}
+        ${card.noteCount ? `<span class="kanban-note-count">${card.noteCount} ${card.noteCount === 1 ? 'note' : 'notes'}</span>` : ''}
       </article>`).join('') || '<p class="kanban-column-empty">Drop cards here or add one below.</p>'}</div>
       ${canEdit ? `<button type="button" class="kanban-add-card">+ Add card</button>` : ''}
     </section>`;
@@ -46,8 +51,29 @@ function openCard(columnId, card = null) {
   form.elements.projectId.value = card?.projectId || '';
   form.elements.title.value = card?.title || '';
   form.elements.description.value = card?.description || '';
+  form.querySelectorAll('input, textarea, select').forEach((field) => { field.disabled = !canEdit; });
+  form.querySelector('.dialog-actions').hidden = !canEdit;
+  notesSection.hidden = !card;
+  noteForm.hidden = !canEdit;
+  noteList.innerHTML = '';
+  noteError.textContent = '';
   dialog.showModal();
-  form.elements.title.focus();
+  if (card) void loadNotes(card.id);
+  if (canEdit) form.elements.title.focus();
+}
+
+function renderNotes(notes) {
+  document.querySelector('#note-count').textContent = `${notes.length} ${notes.length === 1 ? 'note' : 'notes'}`;
+  noteList.innerHTML = notes.length ? notes.map((note) => `<article class="kanban-note" data-note-id="${note.id}">
+    <p>${escapeHtml(note.body)}</p><footer><time>${escapeHtml(note.createdAt)}</time>${canEdit ? `<button type="button" class="note-delete" aria-label="Delete note">Delete</button>` : ''}</footer>
+  </article>`).join('') : '<p class="kanban-note-empty">No notes yet.</p>';
+}
+
+async function loadNotes(cardId) {
+  try {
+    const notes = await api(`/cards/${cardId}/notes`);
+    if (editingId === cardId && dialog.open) renderNotes(notes);
+  } catch (error) { if (editingId === cardId) noteList.textContent = error.message; }
 }
 
 async function reload() {
@@ -67,10 +93,12 @@ async function saveCard(event) {
   const button = form.querySelector('[type="submit"]');
   button.disabled = true;
   try {
-    await api(`/cards${editingId ? `/${editingId}` : ''}`, mutation(editingId ? 'PUT' : 'POST', payload));
-    dialog.close();
+    const wasEditing = Boolean(editingId);
+    const saved = await api(`/cards${editingId ? `/${editingId}` : ''}`, mutation(editingId ? 'PUT' : 'POST', payload));
     await reload();
-    showToast(editingId ? 'Card updated' : 'Card added');
+    dialog.close();
+    if (!wasEditing) openCard(saved.columnId, saved);
+    showToast(wasEditing ? 'Card updated' : 'Card added');
   } catch (error) { cardError.textContent = error.message; }
   finally { button.disabled = false; }
 }
@@ -90,28 +118,27 @@ columnForm.addEventListener('submit', async (event) => {
 });
 
 board.addEventListener('click', async (event) => {
-  if (!canEdit) return;
   const columnElement = event.target.closest('[data-column-id]');
   if (!columnElement) return;
   const columnId = Number(columnElement.dataset.columnId);
   const column = data.columns.find((item) => item.id === columnId);
   const cardElement = event.target.closest('[data-card-id]');
-  if (event.target.closest('.column-rename')) {
+  if (canEdit && event.target.closest('.column-rename')) {
     const name = prompt('Column name', column.name);
     if (name === null || name.trim() === column.name) return;
     try { await api(`/columns/${columnId}`, mutation('PUT', { name })); await reload(); showToast('Column renamed'); }
     catch (error) { boardError.textContent = error.message; }
-  } else if (event.target.closest('.column-delete')) {
+  } else if (canEdit && event.target.closest('.column-delete')) {
     const count = data.cards.filter((card) => card.columnId === columnId).length;
     if (!confirm(`Delete “${column.name}”${count ? ` and its ${count} card${count === 1 ? '' : 's'}` : ''}?`)) return;
     try { await api(`/columns/${columnId}`, { method: 'DELETE' }); await reload(); showToast('Column deleted'); }
     catch (error) { boardError.textContent = error.message; }
-  } else if (event.target.closest('.kanban-add-card')) openCard(columnId);
+  } else if (canEdit && event.target.closest('.kanban-add-card')) openCard(columnId);
   else if (cardElement) openCard(columnId, data.cards.find((card) => card.id === Number(cardElement.dataset.cardId)));
 });
 
 board.addEventListener('keydown', (event) => {
-  if (!canEdit || !['Enter', ' '].includes(event.key)) return;
+  if (!['Enter', ' '].includes(event.key)) return;
   const cardElement = event.target.closest('[data-card-id]');
   if (!cardElement) return;
   event.preventDefault();
@@ -154,6 +181,33 @@ board.addEventListener('drop', async (event) => {
 board.addEventListener('dragend', () => board.querySelectorAll('.drop-target').forEach((element) => element.classList.remove('drop-target')));
 
 form.addEventListener('submit', saveCard);
+noteForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (!canEdit || !editingId) return;
+  noteError.textContent = '';
+  const cardId = editingId;
+  const button = noteForm.querySelector('button[type="submit"]');
+  button.disabled = true;
+  try {
+    await api(`/cards/${cardId}/notes`, mutation('POST', { body: noteForm.elements.body.value }));
+    noteForm.reset();
+    await Promise.all([loadNotes(cardId), reload()]);
+    showToast('Note added');
+  } catch (error) { noteError.textContent = error.message; }
+  finally { button.disabled = false; }
+});
+noteList.addEventListener('click', async (event) => {
+  if (!canEdit || !editingId || !event.target.closest('.note-delete')) return;
+  const noteId = Number(event.target.closest('[data-note-id]').dataset.noteId);
+  if (!confirm('Delete this note?')) return;
+  noteError.textContent = '';
+  const cardId = editingId;
+  try {
+    await api(`/cards/${cardId}/notes/${noteId}`, { method: 'DELETE' });
+    await Promise.all([loadNotes(cardId), reload()]);
+    showToast('Note deleted');
+  } catch (error) { noteError.textContent = error.message; }
+});
 document.querySelector('#delete-card').addEventListener('click', async () => {
   if (!editingId || !confirm('Delete this card?')) return;
   try { await api(`/cards/${editingId}`, { method: 'DELETE' }); dialog.close(); await reload(); showToast('Card deleted'); }

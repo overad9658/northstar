@@ -173,6 +173,13 @@ function createRelatedTables(db) {
     );
     CREATE INDEX IF NOT EXISTS idx_kanban_cards_column_position ON kanban_cards(column_id, position, id);
     CREATE INDEX IF NOT EXISTS idx_kanban_cards_project ON kanban_cards(project_id);
+    CREATE TABLE IF NOT EXISTS kanban_card_notes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      card_id INTEGER NOT NULL REFERENCES kanban_cards(id) ON DELETE CASCADE,
+      body TEXT NOT NULL CHECK(length(body) BETWEEN 1 AND 2000),
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_kanban_card_notes_card ON kanban_card_notes(card_id, created_at, id);
     CREATE TABLE IF NOT EXISTS planning_sessions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       token TEXT NOT NULL UNIQUE,

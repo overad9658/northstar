@@ -40,18 +40,28 @@ test('kanban cards can stand alone, link to projects, move, and survive backup r
     const project = await (await request('/api/projects', 'POST', { name: 'Launch', impact: 4, urgency: 4, confidence: 5, effort: 5 })).json();
     const linked = await (await request('/api/kanban/cards', 'POST', { columnId: todo.id, title: 'Prepare release', projectId: project.id })).json();
     assert.equal(linked.projectId, project.id);
+    const firstNote = await (await request(`/api/kanban/cards/${linked.id}/notes`, 'POST', { body: 'Check release window' })).json();
+    const secondNote = await (await request(`/api/kanban/cards/${linked.id}/notes`, 'POST', { body: 'Confirm with support' })).json();
+    assert.equal((await request(`/api/kanban/cards/${linked.id}/notes`, 'POST', { body: '   ' })).status, 400);
+    assert.deepEqual((await (await request(`/api/kanban/cards/${linked.id}/notes`)).json()).map((note) => note.body), ['Check release window', 'Confirm with support']);
+    assert.equal((await request(`/api/kanban/cards/${general.id}/notes/${firstNote.id}`, 'DELETE')).status, 404);
     const moved = await (await request(`/api/kanban/cards/${linked.id}`, 'PUT', { columnId: done.id })).json();
     assert.equal(moved.columnId, done.id);
     let board = await (await request('/api/kanban')).json();
     assert.equal(board.cards.find((card) => card.id === linked.id).projectName, 'Launch');
+    assert.equal(board.cards.find((card) => card.id === linked.id).noteCount, 2);
     const backup = await (await request('/api/backup')).json();
     assert.equal(backup.kanbanColumns.length, 2);
     assert.equal(backup.kanbanCards.length, 2);
+    assert.equal(backup.kanbanCardNotes.length, 2);
+    assert.equal((await request(`/api/kanban/cards/${linked.id}/notes/${firstNote.id}`, 'DELETE')).status, 204);
+    assert.deepEqual((await (await request(`/api/kanban/cards/${linked.id}/notes`)).json()).map((note) => note.id), [secondNote.id]);
     assert.equal((await request(`/api/kanban/cards/${general.id}`, 'DELETE')).status, 204);
     assert.equal((await request('/api/backup', 'POST', backup)).status, 200);
     board = await (await request('/api/kanban')).json();
     assert.equal(board.cards.length, 2);
     assert.equal(board.cards.find((card) => card.id === general.id).projectId, null);
+    assert.equal((await (await request(`/api/kanban/cards/${linked.id}/notes`)).json()).length, 2);
     assert.equal((await request(`/api/projects/${project.id}`, 'DELETE')).status, 204);
     board = await (await request('/api/kanban')).json();
     assert.equal(board.cards.find((card) => card.id === linked.id).projectId, null);
@@ -59,6 +69,9 @@ test('kanban cards can stand alone, link to projects, move, and survive backup r
     board = await (await request('/api/kanban')).json();
     assert.equal(board.cards.length, 1);
     assert.equal(board.cards[0].id, linked.id);
+    assert.equal((await (await request(`/api/kanban/cards/${linked.id}/notes`)).json()).length, 2);
+    assert.equal((await request(`/api/kanban/cards/${linked.id}`, 'DELETE')).status, 204);
+    assert.equal((await request(`/api/kanban/cards/${linked.id}/notes`)).status, 404);
   } finally {
     await stopServer(child);
     await rm(dataDir, { recursive: true, force: true });
