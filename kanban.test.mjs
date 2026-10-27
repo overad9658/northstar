@@ -1,9 +1,22 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { startServer, stopServer } from './support/server-fixture.mjs';
+
+test('Docker image includes every local server module', async () => {
+  const dockerfile = await readFile(new URL('./Dockerfile', import.meta.url), 'utf8');
+  const runtimeCopy = dockerfile.match(/^COPY package\.json (.+) \.\/$/m)?.[1];
+  assert.ok(runtimeCopy, 'Dockerfile must list runtime modules');
+  const copied = new Set(runtimeCopy.split(/\s+/));
+  for (const filename of copied) {
+    const source = await readFile(new URL(`./${filename}`, import.meta.url), 'utf8');
+    for (const match of source.matchAll(/\bfrom ['"]\.\/([^'"]+\.mjs)['"]/g)) {
+      assert.ok(copied.has(match[1]), `${filename} imports ${match[1]}, but Docker does not copy it`);
+    }
+  }
+});
 
 test('kanban cards can stand alone, link to projects, move, and survive backup restore', async () => {
   const dataDir = await mkdtemp(join(tmpdir(), 'northstar-kanban-'));
