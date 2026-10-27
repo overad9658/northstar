@@ -11,7 +11,8 @@ import {
 const selectColumns = `
   id, project_id AS projectId, external_url AS externalUrl, name, description, retrospective, blocked_note AS blockedNote, archive_note AS archiveNote, restore_note AS restoreNote, team, status, schedule_stage AS scheduleStage, capacity, archived, hidden_from_read_only AS hiddenFromReadOnly, impact, urgency, confidence, effort,
   created_at AS createdAt, updated_at AS updatedAt,
-  ROUND((impact * 0.4 + urgency * 0.4 + confidence * 0.2) * (1.15 - effort * 0.03), 1) AS score
+  ROUND((impact * 0.4 + urgency * 0.4 + confidence * 0.2) * (1.15 - effort * 0.03), 1) AS score,
+  (SELECT COUNT(*) FROM kanban_cards WHERE project_id = projects.id) AS cardCount
 `;
 
 const BULK_LIMIT = 100;

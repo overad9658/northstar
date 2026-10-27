@@ -17,9 +17,10 @@
         <div class="topbar-actions"><button class="theme-toggle" data-theme-toggle type="button" aria-label="Switch to dark mode" aria-pressed="false"><span class="theme-icon-light" aria-hidden="true">☀</span><span class="theme-icon-dark" aria-hidden="true">☾</span></button><a class="button secondary button-link" href="/">← Priority matrix</a></div>
       </header>
       <section class="kanban-intro">
-        <div><p class="eyebrow">Work board</p><h1>Keep work moving.</h1><p class="subtitle">Capture general to dos, or connect a card to a project when it belongs to one.</p></div>
+        <div><p class="eyebrow">Work board</p><h1>Keep work moving.</h1><p class="subtitle">Capture general to dos, or connect a card to a project when it belongs to one.</p><button class="button secondary kanban-export" id="download-kanban-report" type="button">Download time in column</button></div>
         <form id="column-form" class="kanban-add-column"><label class="field"><span>New column</span><input name="name" maxlength="80" placeholder="e.g. To do" required></label><button class="button primary" type="submit">+ Add column</button></form>
       </section>
+      <div class="kanban-filters"><label class="field"><span>Filter by tag</span><select id="tag-filter"><option value="">All tags</option></select></label></div>
       <p class="form-error" id="board-error" role="alert"></p>
       <section id="kanban-board" class="kanban-board" aria-label="Kanban board"></section>
     </main>
@@ -30,6 +31,7 @@
         <label class="field wide"><span>Details <small>Optional</small></span><textarea name="description" maxlength="2000" rows="4" placeholder="Add context or next steps"></textarea></label>
         <label class="field wide"><span>Column</span><select name="columnId" required></select></label>
         <label class="field wide"><span>Project <small>Optional</small></span><select name="projectId"><option value="">No project — general to do</option></select></label>
+        <label class="field wide"><span>Tags <small>Optional · separate with commas</small></span><input name="tags" maxlength="1000" placeholder="e.g. follow-up, release, urgent"></label>
         <p class="form-error" id="card-error" role="alert"></p>
         <footer class="dialog-actions"><button class="delete-button" id="delete-card" type="button">Delete card</button><span></span><button class="button secondary" id="cancel-card" type="button">Cancel</button><button class="button primary" type="submit">Save card</button></footer>
       </form>
@@ -37,6 +39,10 @@
         <div class="kanban-notes-head"><h3 id="card-notes-title">Notes</h3><span id="note-count">0 notes</span></div>
         <div id="note-list" class="kanban-note-list"></div>
         <form id="note-form"><label class="field"><span>Add a note</span><textarea name="body" maxlength="2000" rows="3" required placeholder="Add an update or reminder"></textarea></label><p class="form-error" id="note-error" role="alert"></p><button class="button secondary" type="submit">Add note</button></form>
+      </section>
+      <section class="kanban-history" id="card-history" hidden aria-labelledby="card-history-title">
+        <div class="kanban-notes-head"><h3 id="card-history-title">Column history</h3><span>Time in each column</span></div>
+        <div id="history-list" class="kanban-history-list"></div>
       </section>
     </dialog>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>

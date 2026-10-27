@@ -56,6 +56,7 @@
 .project-preview h3 { margin:0; font:500 20px/1.2 Georgia,serif; }
 .project-preview-team { width:max-content; max-width:100%; margin:10px 0 0; padding:5px 8px; border-radius:999px; color:#36584d; background:var(--green-2); font-size:10px; font-weight:800; }
 .project-preview-meta { margin:7px 0 0; color:var(--muted); font-size:9px; font-weight:700; letter-spacing:.03em; }
+.project-preview-cards { margin:9px 0 0; color:var(--green); font-size:10px; font-weight:750; }
 .project-preview-context { margin:15px 0; color:#4f5d58; font-size:11px; line-height:1.55; }
 .project-preview-footer { padding-top:12px; border-top:1px solid var(--line); display:flex; align-items:center; justify-content:space-between; gap:12px; }
 .project-preview-footer>span { color:var(--muted); font-size:9px; }

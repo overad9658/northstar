@@ -173,6 +173,12 @@ function createRelatedTables(db) {
     );
     CREATE INDEX IF NOT EXISTS idx_kanban_cards_column_position ON kanban_cards(column_id, position, id);
     CREATE INDEX IF NOT EXISTS idx_kanban_cards_project ON kanban_cards(project_id);
+    CREATE TABLE IF NOT EXISTS kanban_card_tags (
+      card_id INTEGER NOT NULL REFERENCES kanban_cards(id) ON DELETE CASCADE,
+      name TEXT NOT NULL CHECK(length(name) BETWEEN 1 AND 40),
+      PRIMARY KEY (card_id, name)
+    );
+    CREATE INDEX IF NOT EXISTS idx_kanban_card_tags_name ON kanban_card_tags(name, card_id);
     CREATE TABLE IF NOT EXISTS kanban_card_notes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       card_id INTEGER NOT NULL REFERENCES kanban_cards(id) ON DELETE CASCADE,
@@ -180,6 +186,15 @@ function createRelatedTables(db) {
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
     CREATE INDEX IF NOT EXISTS idx_kanban_card_notes_card ON kanban_card_notes(card_id, created_at, id);
+    CREATE TABLE IF NOT EXISTS kanban_card_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      card_id INTEGER NOT NULL REFERENCES kanban_cards(id) ON DELETE CASCADE,
+      column_id INTEGER NOT NULL,
+      column_name TEXT NOT NULL,
+      entered_at TEXT NOT NULL,
+      exited_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_kanban_card_history_card ON kanban_card_history(card_id, entered_at, id);
     CREATE TABLE IF NOT EXISTS planning_sessions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       token TEXT NOT NULL UNIQUE,
@@ -216,6 +231,15 @@ function createRelatedTables(db) {
     SELECT id, project_id, 0, CASE WHEN status = 'Closed' THEN 'Decided' ELSE 'Open' END,
       final_impact, final_urgency, final_confidence, final_effort, decided_at
     FROM planning_sessions;
+  `);
+}
+
+export function backfillKanbanHistory(db) {
+  db.exec(`
+    INSERT INTO kanban_card_history (card_id, column_id, column_name, entered_at)
+    SELECT c.id, c.column_id, k.name, c.created_at
+    FROM kanban_cards c JOIN kanban_columns k ON k.id = c.column_id
+    WHERE NOT EXISTS (SELECT 1 FROM kanban_card_history h WHERE h.card_id = c.id);
   `);
 }
 
@@ -272,6 +296,7 @@ export function openDatabase(filePath, { client = 'sqlite', connectionString } =
         db.exec('CREATE EXTENSION IF NOT EXISTS citext');
         db.exec(projectsTableSql.replace('CREATE TABLE projects', 'CREATE TABLE IF NOT EXISTS projects'));
         createRelatedTables(db);
+        backfillKanbanHistory(db);
         migrateTeams(db);
         migratePlanningVotes(db);
         db.exec(`
@@ -288,6 +313,7 @@ export function openDatabase(filePath, { client = 'sqlite', connectionString } =
   db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
   migrateProjects(db);
   createRelatedTables(db);
+  backfillKanbanHistory(db);
   migrateTeams(db);
   migratePlanningVotes(db);
   db.exec(`

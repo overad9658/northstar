@@ -129,6 +129,7 @@
         <label class="field wide scheduled-stage-field" id="scheduled-stage-field" hidden><span>Scheduled stage</span><select name="scheduleStage"><option>To plan</option><option>Planning</option></select></label>
         <label class="field wide" id="capacity-field"><span>People assigned <small id="capacity-help">Counts against team capacity</small></span><input name="capacity" type="number" min="0" max="999" step="1" value="0"></label>
         <label class="field wide"><span>Context <small>Optional</small></span><textarea name="description" maxlength="1000" rows="3" placeholder="What outcome does this project unlock?"></textarea></label>
+        <p class="project-linked-count" id="project-dialog-card-count" hidden></p>
         <label class="visibility-field"><input name="hiddenFromReadOnly" type="checkbox"><span><b>Hide from read-only users</b><small>Only admins will be able to see this project.</small></span></label>
         <label class="field wide retrospective-field" id="retrospective-field" hidden><span>Retrospective <small>For completed projects</small></span><textarea name="retrospective" maxlength="5000" rows="6" placeholder="What went well? What did the team learn? What should change next time?"></textarea></label>
         <fieldset class="scores"><legend>Score the project <small>1 = low, 10 = high</small></legend>
@@ -232,6 +233,7 @@
       <h3 id="project-preview-title"></h3>
       <p class="project-preview-team" id="project-preview-team"></p>
       <p class="project-preview-meta" id="project-preview-meta"></p>
+      <p class="project-preview-cards" id="project-preview-cards"></p>
       <p class="project-preview-context" id="project-preview-context"></p>
       <div class="project-preview-footer">
         <span id="project-preview-scores"></span>

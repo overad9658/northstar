@@ -10,10 +10,14 @@ const notesSection = document.querySelector('#card-notes');
 const noteForm = document.querySelector('#note-form');
 const noteList = document.querySelector('#note-list');
 const noteError = document.querySelector('#note-error');
+const historySection = document.querySelector('#card-history');
+const historyList = document.querySelector('#history-list');
+const tagFilter = document.querySelector('#tag-filter');
 let data = { columns: [], cards: [] };
 let projects = [];
 let canEdit = false;
 let editingId = null;
+let selectedTag = '';
 
 function api(path = '', options) {
   return requestJson(`/api/kanban${path}`, options, 'The board could not be saved.');
@@ -24,15 +28,20 @@ function mutation(method, body) {
 }
 
 function render() {
+  const tags = [...new Set(data.cards.flatMap((card) => card.tags || []))].sort((a, b) => a.localeCompare(b));
+  if (selectedTag && !tags.includes(selectedTag)) selectedTag = '';
+  tagFilter.innerHTML = '<option value="">All tags</option>' + tags.map((tag) => `<option value="${escapeHtml(tag)}">${escapeHtml(tag)}</option>`).join('');
+  tagFilter.value = selectedTag;
   board.innerHTML = data.columns.length ? data.columns.map((column) => {
-    const cards = data.cards.filter((card) => card.columnId === column.id);
+    const cards = data.cards.filter((card) => card.columnId === column.id && (!selectedTag || card.tags?.includes(selectedTag)));
     return `<section class="kanban-column" data-column-id="${column.id}" aria-label="${escapeHtml(column.name)}">
       <header class="kanban-column-head"><div><h2>${escapeHtml(column.name)}</h2><span>${cards.length}</span></div>${canEdit ? `<div class="kanban-column-actions"><button type="button" class="column-rename" aria-label="Rename ${escapeHtml(column.name)}" title="Rename column">✎</button><button type="button" class="column-delete" aria-label="Delete ${escapeHtml(column.name)}" title="Delete column">×</button></div>` : ''}</header>
       <div class="kanban-card-list">${cards.map((card) => `<article class="kanban-card" data-card-id="${card.id}" ${canEdit ? 'draggable="true"' : ''} tabindex="0" role="button" aria-label="${escapeHtml(card.title)}">
         <h3>${escapeHtml(card.title)}</h3>${card.description ? `<p>${escapeHtml(card.description)}</p>` : ''}
         ${card.projectId ? `<span class="kanban-project-tag">${escapeHtml(card.projectCode || card.projectName || 'Project')}<span>${card.projectCode ? escapeHtml(card.projectName) : ''}</span></span>` : '<span class="kanban-general-tag">General to do</span>'}
+        ${(card.tags || []).length ? `<div class="kanban-tags">${card.tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join('')}</div>` : ''}
         ${card.noteCount ? `<span class="kanban-note-count">${card.noteCount} ${card.noteCount === 1 ? 'note' : 'notes'}</span>` : ''}
-      </article>`).join('') || '<p class="kanban-column-empty">Drop cards here or add one below.</p>'}</div>
+      </article>`).join('') || `<p class="kanban-column-empty">${selectedTag ? 'No cards with this tag.' : 'Drop cards here or add one below.'}</p>`}</div>
       ${canEdit ? `<button type="button" class="kanban-add-card">+ Add card</button>` : ''}
     </section>`;
   }).join('') : '<div class="kanban-board-empty"><h2>Your board starts with a column</h2><p>Add a column for the way you organize work, then fill it with cards.</p></div>';
@@ -51,14 +60,17 @@ function openCard(columnId, card = null) {
   form.elements.projectId.value = card?.projectId || '';
   form.elements.title.value = card?.title || '';
   form.elements.description.value = card?.description || '';
+  form.elements.tags.value = card?.tags?.join(', ') || '';
   form.querySelectorAll('input, textarea, select').forEach((field) => { field.disabled = !canEdit; });
   form.querySelector('.dialog-actions').hidden = !canEdit;
   notesSection.hidden = !card;
+  historySection.hidden = !card;
   noteForm.hidden = !canEdit;
   noteList.innerHTML = '';
+  historyList.innerHTML = '';
   noteError.textContent = '';
   dialog.showModal();
-  if (card) void loadNotes(card.id);
+  if (card) { void loadNotes(card.id); void loadHistory(card.id); }
   if (canEdit) form.elements.title.focus();
 }
 
@@ -76,6 +88,46 @@ async function loadNotes(cardId) {
   } catch (error) { if (editingId === cardId) noteList.textContent = error.message; }
 }
 
+function formatDuration(seconds) {
+  if (seconds < 60) return `${Math.round(seconds)} sec`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)} min`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)} hr ${Math.floor(seconds % 3600 / 60)} min`;
+  return `${Math.floor(seconds / 86400)} d ${Math.floor(seconds % 86400 / 3600)} hr`;
+}
+
+async function loadHistory(cardId) {
+  try {
+    const { entries } = await api(`/cards/${cardId}/history`);
+    if (editingId !== cardId || !dialog.open) return;
+    historyList.innerHTML = entries.length ? entries.map((entry) => `<article class="kanban-history-entry">
+      <div><strong>${escapeHtml(entry.columnName)}</strong><span>${entry.isCurrent ? 'Current' : formatDuration(entry.durationSeconds)}</span></div>
+      <p>${escapeHtml(entry.enteredAt)} → ${entry.exitedAt ? escapeHtml(entry.exitedAt) : 'Now'} · ${formatDuration(entry.durationSeconds)}</p>
+    </article>`).join('') : '<p class="kanban-note-empty">No column history yet.</p>';
+  } catch (error) { if (editingId === cardId) historyList.textContent = error.message; }
+}
+
+function csvCell(value) {
+  const text = String(value ?? '');
+  const safe = /^[=+\-@]/.test(text) ? `'${text}` : text;
+  return `"${safe.replaceAll('"', '""')}"`;
+}
+
+document.querySelector('#download-kanban-report').addEventListener('click', async () => {
+  boardError.textContent = '';
+  try {
+    const { asOf, rows } = await api('/report');
+    const headings = ['Card ID', 'Card', 'Project ID', 'Project', 'Column ID', 'Column', 'Entered at', 'Exited at', 'Current', 'Duration seconds', 'Duration hours', 'As of'];
+    const values = rows.map((row) => [row.cardId, row.cardTitle, row.projectCode, row.projectName, row.columnId, row.columnName, row.enteredAt, row.exitedAt, row.isCurrent ? 'Yes' : 'No', row.durationSeconds, (row.durationSeconds / 3600).toFixed(3), asOf]);
+    const csv = [headings, ...values].map((line) => line.map(csvCell).join(',')).join('\r\n') + '\r\n';
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `northstar-kanban-time-${asOf.slice(0, 10)}.csv`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (error) { boardError.textContent = error.message; }
+});
+
 async function reload() {
   data = await api();
   render();
@@ -89,6 +141,7 @@ async function saveCard(event) {
     description: form.elements.description.value,
     columnId: Number(form.elements.columnId.value),
     projectId: form.elements.projectId.value ? Number(form.elements.projectId.value) : null,
+    tags: form.elements.tags.value.split(',').map((tag) => tag.trim()).filter(Boolean),
   };
   const button = form.querySelector('[type="submit"]');
   button.disabled = true;
@@ -116,6 +169,7 @@ columnForm.addEventListener('submit', async (event) => {
   } catch (error) { boardError.textContent = error.message; }
   finally { button.disabled = false; }
 });
+tagFilter.addEventListener('change', () => { selectedTag = tagFilter.value; render(); });
 
 board.addEventListener('click', async (event) => {
   const columnElement = event.target.closest('[data-column-id]');

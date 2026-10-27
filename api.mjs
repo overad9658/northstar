@@ -78,6 +78,10 @@ export function createApi(db, { apiToken = process.env.API_TOKEN } = {}) {
         if (req.method === 'GET') return json(res, 200, kanban.list({ includeHidden: user.role === 'admin' })), true;
         return json(res, 405, { error: 'Method not allowed.' }), true;
       }
+      if (url.pathname === '/api/kanban/report') {
+        if (req.method === 'GET') return json(res, 200, kanban.report({ includeHidden: user.role === 'admin' })), true;
+        return json(res, 405, { error: 'Method not allowed.' }), true;
+      }
       const columnMatch = url.pathname.match(/^\/api\/kanban\/columns(?:\/(\d+))?$/);
       if (columnMatch) {
         requireAdmin(req);
@@ -88,6 +92,11 @@ export function createApi(db, { apiToken = process.env.API_TOKEN } = {}) {
         return json(res, 405, { error: 'Method not allowed.' }), true;
       }
       const cardMatch = url.pathname.match(/^\/api\/kanban\/cards(?:\/(\d+))?$/);
+      const historyMatch = url.pathname.match(/^\/api\/kanban\/cards\/(\d+)\/history$/);
+      if (historyMatch) {
+        if (req.method === 'GET') return json(res, 200, kanban.history(Number(historyMatch[1]), { includeHidden: user.role === 'admin' })), true;
+        return json(res, 405, { error: 'Method not allowed.' }), true;
+      }
       const noteMatch = url.pathname.match(/^\/api\/kanban\/cards\/(\d+)\/notes(?:\/(\d+))?$/);
       if (noteMatch) {
         const cardId = Number(noteMatch[1]);

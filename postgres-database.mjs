@@ -1,6 +1,6 @@
 import { MessageChannel, receiveMessageOnPort, Worker } from 'node:worker_threads';
 
-const identityTables = ['projects', 'teams', 'users', 'project_moves', 'planning_sessions', 'planning_votes', 'kanban_columns', 'kanban_cards', 'kanban_card_notes'];
+const identityTables = ['projects', 'teams', 'users', 'project_moves', 'planning_sessions', 'planning_votes', 'kanban_columns', 'kanban_cards', 'kanban_card_notes', 'kanban_card_history'];
 const timestampSql = "to_char(clock_timestamp() AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')";
 
 // Translate the application's fixed SQL statements; values always remain bound parameters.

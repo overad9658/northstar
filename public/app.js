@@ -80,6 +80,7 @@ function showProjectPreview(project, dot) {
   $('#project-preview-title').textContent = project.name;
   $('#project-preview-team').textContent = `Team: ${project.team}`;
   $('#project-preview-meta').textContent = `${project.projectId || projectLabel(project)} · ${projectStatusLabel(project)}`;
+  $('#project-preview-cards').textContent = `${project.cardCount || 0} linked ${(project.cardCount || 0) === 1 ? 'card' : 'cards'}`;
   $('#project-preview-context').textContent = project.description || 'No additional context has been added yet.';
   $('#project-preview-scores').textContent = `Impact ${project.impact} · Urgency ${project.urgency} · Score ${project.score}`;
   const source = $('#project-preview-source');
@@ -233,6 +234,8 @@ function openDialog(project = null) {
   form.classList.toggle('archived-project', Boolean(project?.archived));
   $('#dialog-kicker').textContent = project ? 'Edit project' : 'New project';
   $('#dialog-title').textContent = project ? project.name : 'Add to the matrix';
+  $('#project-dialog-card-count').hidden = !project;
+  $('#project-dialog-card-count').textContent = project ? `${project.cardCount || 0} linked ${(project.cardCount || 0) === 1 ? 'card' : 'cards'} on the kanban board` : '';
   $('#form-error').textContent = '';
   form.elements.id.value = project?.id || '';
   form.elements.moveComment.value = '';
