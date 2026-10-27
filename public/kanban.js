@@ -13,11 +13,13 @@ const noteError = document.querySelector('#note-error');
 const historySection = document.querySelector('#card-history');
 const historyList = document.querySelector('#history-list');
 const tagFilter = document.querySelector('#tag-filter');
+const projectFilter = document.querySelector('#project-filter');
 let data = { columns: [], cards: [] };
 let projects = [];
 let canEdit = false;
 let editingId = null;
 let selectedTag = '';
+let selectedProject = 'all';
 
 function api(path = '', options) {
   return requestJson(`/api/kanban${path}`, options, 'The board could not be saved.');
@@ -32,8 +34,13 @@ function render() {
   if (selectedTag && !tags.includes(selectedTag)) selectedTag = '';
   tagFilter.innerHTML = '<option value="">All tags</option>' + tags.map((tag) => `<option value="${escapeHtml(tag)}">${escapeHtml(tag)}</option>`).join('');
   tagFilter.value = selectedTag;
+  if (!['all', 'none'].includes(selectedProject) && !projects.some((project) => String(project.id) === selectedProject)) selectedProject = 'all';
+  projectFilter.innerHTML = '<option value="all">All projects</option><option value="none">General to dos</option>' + projects.map((project) => `<option value="${project.id}">${escapeHtml(project.projectId ? `${project.projectId} · ${project.name}` : project.name)}</option>`).join('');
+  projectFilter.value = selectedProject;
   board.innerHTML = data.columns.length ? data.columns.map((column) => {
-    const cards = data.cards.filter((card) => card.columnId === column.id && (!selectedTag || card.tags?.includes(selectedTag)));
+    const cards = data.cards.filter((card) => card.columnId === column.id
+      && (!selectedTag || card.tags?.includes(selectedTag))
+      && (selectedProject === 'all' || (selectedProject === 'none' ? card.projectId === null : String(card.projectId) === selectedProject)));
     return `<section class="kanban-column" data-column-id="${column.id}" aria-label="${escapeHtml(column.name)}">
       <header class="kanban-column-head"><div><h2>${escapeHtml(column.name)}</h2><span>${cards.length}</span></div>${canEdit ? `<div class="kanban-column-actions"><button type="button" class="column-rename" aria-label="Rename ${escapeHtml(column.name)}" title="Rename column">✎</button><button type="button" class="column-delete" aria-label="Delete ${escapeHtml(column.name)}" title="Delete column">×</button></div>` : ''}</header>
       <div class="kanban-card-list">${cards.map((card) => `<article class="kanban-card" data-card-id="${card.id}" ${canEdit ? 'draggable="true"' : ''} tabindex="0" role="button" aria-label="${escapeHtml(card.title)}">
@@ -41,7 +48,7 @@ function render() {
         ${card.projectId ? `<span class="kanban-project-tag">${escapeHtml(card.projectCode || card.projectName || 'Project')}<span>${card.projectCode ? escapeHtml(card.projectName) : ''}</span></span>` : '<span class="kanban-general-tag">General to do</span>'}
         ${(card.tags || []).length ? `<div class="kanban-tags">${card.tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join('')}</div>` : ''}
         ${card.noteCount ? `<span class="kanban-note-count">${card.noteCount} ${card.noteCount === 1 ? 'note' : 'notes'}</span>` : ''}
-      </article>`).join('') || `<p class="kanban-column-empty">${selectedTag ? 'No cards with this tag.' : 'Drop cards here or add one below.'}</p>`}</div>
+      </article>`).join('') || `<p class="kanban-column-empty">${selectedTag || selectedProject !== 'all' ? 'No cards match these filters.' : 'Drop cards here or add one below.'}</p>`}</div>
       ${canEdit ? `<button type="button" class="kanban-add-card">+ Add card</button>` : ''}
     </section>`;
   }).join('') : '<div class="kanban-board-empty"><h2>Your board starts with a column</h2><p>Add a column for the way you organize work, then fill it with cards.</p></div>';
@@ -170,6 +177,7 @@ columnForm.addEventListener('submit', async (event) => {
   finally { button.disabled = false; }
 });
 tagFilter.addEventListener('change', () => { selectedTag = tagFilter.value; render(); });
+projectFilter.addEventListener('change', () => { selectedProject = projectFilter.value; render(); });
 
 board.addEventListener('click', async (event) => {
   const columnElement = event.target.closest('[data-column-id]');

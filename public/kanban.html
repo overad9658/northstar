@@ -20,7 +20,10 @@
         <div><p class="eyebrow">Work board</p><h1>Keep work moving.</h1><p class="subtitle">Capture general to dos, or connect a card to a project when it belongs to one.</p><button class="button secondary kanban-export" id="download-kanban-report" type="button">Download time in column</button></div>
         <form id="column-form" class="kanban-add-column"><label class="field"><span>New column</span><input name="name" maxlength="80" placeholder="e.g. To do" required></label><button class="button primary" type="submit">+ Add column</button></form>
       </section>
-      <div class="kanban-filters"><label class="field"><span>Filter by tag</span><select id="tag-filter"><option value="">All tags</option></select></label></div>
+      <div class="kanban-filters">
+        <label class="field"><span>Filter by project</span><select id="project-filter"><option value="all">All projects</option><option value="none">General to dos</option></select></label>
+        <label class="field"><span>Filter by tag</span><select id="tag-filter"><option value="">All tags</option></select></label>
+      </div>
       <p class="form-error" id="board-error" role="alert"></p>
       <section id="kanban-board" class="kanban-board" aria-label="Kanban board"></section>
     </main>
