@@ -22,11 +22,13 @@ function validateBackupDocument(input) {
   if (input.teams !== undefined && (!Array.isArray(input.teams) || input.teams.length > 10_000)) {
     throw new Error('The backup contains invalid team records.');
   }
+  if (input.kanbanColumns !== undefined && (!Array.isArray(input.kanbanColumns) || input.kanbanColumns.length > 10_000)) throw new Error('The backup contains invalid kanban columns.');
+  if (input.kanbanCards !== undefined && (!Array.isArray(input.kanbanCards) || input.kanbanCards.length > 100_000)) throw new Error('The backup contains invalid kanban cards.');
   const totalCapacity = Number(input.settings?.totalCapacity);
   if (!Number.isInteger(totalCapacity) || totalCapacity < 0 || totalCapacity > 9999) {
     throw new Error('The backup contains an invalid team capacity.');
   }
-  return { ...input, teams: input.teams || [], totalCapacity };
+  return { ...input, teams: input.teams || [], kanbanColumns: input.kanbanColumns || [], kanbanCards: input.kanbanCards || [], totalCapacity };
 }
 
 function prepareRestoreStatements(db) {
@@ -52,6 +54,8 @@ function prepareRestoreStatements(db) {
       INSERT INTO planning_votes (id, session_id, project_id, voter_token, voter_name, impact, urgency, confidence, effort, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `),
+    kanbanColumn: db.prepare('INSERT INTO kanban_columns (id, name, position, created_at) VALUES (?, ?, ?, ?)'),
+    kanbanCard: db.prepare('INSERT INTO kanban_cards (id, column_id, project_id, title, description, position, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'),
   };
 }
 
@@ -76,6 +80,8 @@ function insertBackupRows(db, backup) {
     const scheduleStage = row.schedule_stage ?? (row.status === 'Scheduled' && row.capacity > 0 ? 'Planning' : 'To plan');
     insert.project.run(row.id, row.project_id, row.external_url ?? '', row.name, row.description, row.retrospective, row.blocked_note ?? '', row.archive_note ?? '', row.restore_note ?? '', row.team, row.status, scheduleStage, row.capacity, row.archived, row.hidden_from_read_only ?? 0, row.impact, row.urgency, row.confidence, row.effort, row.created_at, row.updated_at);
   }
+  for (const row of backup.kanbanColumns) insert.kanbanColumn.run(row.id, row.name, row.position, row.created_at);
+  for (const row of backup.kanbanCards) insert.kanbanCard.run(row.id, row.column_id, row.project_id ?? null, row.title, row.description ?? '', row.position, row.created_at, row.updated_at);
   for (const row of backup.projectMoves) insert.move.run(row.id, row.project_id, row.from_impact, row.from_urgency, row.to_impact, row.to_urgency, row.source, row.comment ?? '', row.moved_at);
   for (const row of backup.planningSessions) insert.session.run(row.id, row.token, row.leader_key, row.project_id, row.status, row.final_impact, row.final_urgency, row.final_confidence, row.final_effort, row.guest_access ?? 1, row.created_at, row.decided_at);
   for (const row of backup.planningSessionProjects) insert.sessionProject.run(row.session_id, row.project_id, row.position, row.status, row.revealed ?? 0, row.final_impact, row.final_urgency, row.final_confidence, row.final_effort, row.move_comment ?? '', row.decided_at);
@@ -115,6 +121,8 @@ export function createBackupService(db) {
         planningSessions: db.prepare('SELECT * FROM planning_sessions ORDER BY id').all(),
         planningSessionProjects: db.prepare('SELECT * FROM planning_session_projects ORDER BY session_id, position, project_id').all(),
         planningVotes: db.prepare('SELECT * FROM planning_votes ORDER BY id').all(),
+        kanbanColumns: db.prepare('SELECT * FROM kanban_columns ORDER BY position, id').all(),
+        kanbanCards: db.prepare('SELECT * FROM kanban_cards ORDER BY column_id, position, id').all(),
       };
     },
 
@@ -123,6 +131,8 @@ export function createBackupService(db) {
       try {
         transaction(db, () => {
           db.exec(`
+            DELETE FROM kanban_cards;
+            DELETE FROM kanban_columns;
             DELETE FROM planning_votes;
             DELETE FROM planning_session_projects;
             DELETE FROM planning_sessions;
@@ -130,7 +140,7 @@ export function createBackupService(db) {
             DELETE FROM projects;
             DELETE FROM teams;
           `);
-          if (db.dialect !== 'postgres') db.exec("DELETE FROM sqlite_sequence WHERE name IN ('projects', 'teams', 'project_moves', 'planning_sessions', 'planning_votes')");
+          if (db.dialect !== 'postgres') db.exec("DELETE FROM sqlite_sequence WHERE name IN ('projects', 'teams', 'project_moves', 'planning_sessions', 'planning_votes', 'kanban_columns', 'kanban_cards')");
           db.prepare('UPDATE portfolio_settings SET total_capacity = ? WHERE id = 1').run(backup.totalCapacity);
           insertBackupRows(db, backup);
           db.prepare('UPDATE portfolio_settings SET total_capacity = (SELECT COALESCE(SUM(capacity), 0) FROM teams) WHERE id = 1').run();

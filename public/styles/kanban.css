@@ -1,0 +1,40 @@
+.kanban-shell { max-width:1600px; margin:auto; }
+.kanban-intro { padding:44px 0 30px; display:flex; justify-content:space-between; align-items:end; gap:30px; }
+.kanban-intro h1 { font-size:clamp(40px,5vw,58px); }
+.kanban-add-column { display:flex; align-items:end; gap:10px; flex:0 0 auto; }
+.kanban-add-column[hidden] { display:none; }
+.kanban-add-column .field { width:220px; margin:0; }
+.kanban-add-column .button { min-height:39px; white-space:nowrap; }
+.kanban-board { display:flex; align-items:stretch; gap:16px; min-height:420px; padding-bottom:20px; overflow-x:auto; }
+.kanban-column { width:300px; min-width:300px; max-height:calc(100vh - 260px); padding:15px; border:1px solid var(--line); border-radius:14px; background:var(--white); display:flex; flex-direction:column; box-shadow:var(--shadow); transition:border-color .15s,background .15s; }
+.kanban-column.drop-target { border-color:#6d9f8b; background:var(--green-2); }
+.kanban-column-head { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:0 2px 13px; border-bottom:1px solid var(--line); }
+.kanban-column-head>div:first-child { min-width:0; display:flex; align-items:center; gap:8px; }
+.kanban-column-head h2 { min-width:0; margin:0; font:500 19px Georgia,serif; overflow-wrap:anywhere; }
+.kanban-column-head span { padding:3px 7px; border-radius:999px; color:var(--muted); background:var(--paper); font-size:10px; font-weight:700; }
+.kanban-column-actions { display:flex; gap:2px; }
+.kanban-column-actions button { width:28px; height:28px; border:0; border-radius:6px; color:var(--muted); background:transparent; font-size:18px; }
+.kanban-column-actions button:hover { color:var(--ink); background:var(--paper); }
+.kanban-card-list { min-height:75px; padding:12px 0; display:grid; align-content:start; gap:9px; overflow-y:auto; }
+.kanban-card { padding:13px; border:1px solid var(--line); border-radius:10px; background:var(--white); box-shadow:0 2px 8px rgb(24 34 32 / 4%); }
+.kanban-card[draggable] { cursor:grab; }
+.kanban-card[draggable]:active { cursor:grabbing; }
+.kanban-card:hover,.kanban-card:focus-visible { border-color:#95b2a5; outline:0; }
+.kanban-card h3 { margin:0; font-size:13px; line-height:1.4; overflow-wrap:anywhere; }
+.kanban-card p { margin:8px 0 0; color:var(--muted); font-size:11px; line-height:1.45; white-space:pre-wrap; overflow-wrap:anywhere; }
+.kanban-project-tag,.kanban-general-tag { width:max-content; max-width:100%; margin-top:11px; padding:5px 7px; border-radius:6px; color:var(--green); background:var(--green-2); display:block; font-size:10px; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.kanban-project-tag span { margin-left:5px; color:var(--muted); font-weight:500; }
+.kanban-general-tag { color:var(--muted); background:var(--paper); }
+.kanban-add-card { width:100%; padding:10px; border:1px dashed var(--line); border-radius:8px; color:var(--green); background:transparent; text-align:left; font-size:11px; font-weight:700; }
+.kanban-add-card:hover { background:var(--green-2); }
+.kanban-column-empty { margin:12px 2px; color:var(--muted); font-size:11px; line-height:1.5; }
+.kanban-board-empty { width:100%; padding:80px 20px; border:1px dashed var(--line); border-radius:14px; text-align:center; }
+.kanban-board-empty h2 { margin:0; font:500 24px Georgia,serif; }
+.kanban-board-empty p { color:var(--muted); font-size:12px; }
+.kanban-dialog form { padding:29px; }
+.kanban-dialog .dialog-head h2 { margin:0; font:500 26px Georgia,serif; }
+.kanban-dialog .dialog-actions { display:flex; justify-content:flex-end; }
+.kanban-dialog .dialog-actions>span { flex:1; }
+.kanban-dialog.editing .delete-button { display:block; }
+@media(max-width:760px) { .kanban-intro { align-items:start; flex-direction:column; }.kanban-add-column { width:100%; }.kanban-add-column .field { flex:1; width:auto; }.kanban-column { max-height:none; }.kanban-board { min-height:360px; } }
+@media(max-width:620px) { .kanban-intro { padding:28px 0 22px; }.kanban-add-column .button { min-height:43px; }.kanban-column { width:min(300px,calc(100vw - 44px)); min-width:min(300px,calc(100vw - 44px)); }.kanban-dialog form { padding:22px 18px; } }

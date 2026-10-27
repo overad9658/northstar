@@ -20,6 +20,8 @@ Moving a project into Blocked opens a note prompt. The blocker note is stored wh
 
 Focus Now allows one non-complete, non-archived project per team. Dragging, editing, or creating a second project for the same team in that quadrant is rejected until that team’s current project is moved out. Planning rooms apply the same per-team rule to tentative placements and reopen conflicting projects for adjustment. Project fill colors show status, and the Team menu filters the portfolio by one or several responsible teams.
 
+The **Kanban board** in the main menu holds general to dos and project work. Admins can add and rename columns, create cards, optionally link cards to projects, and move cards between columns by dragging or editing. Cards remain when a linked project is deleted; the project link is cleared. Read-only users can view the board but cannot change it.
+
 Every impact or urgency change is saved with its date, previous position, new position, and source. Open a project and choose **View history** to review its movement timeline. Selecting the Complete filter also enables completed projects on the matrix automatically.
 
 Moves can include an optional comment explaining why the priority changed. Comments can be added during a matrix drag, a project edit, or a planning-room placement and appear in the movement timeline.
@@ -30,7 +32,7 @@ Use the **Teams** configuration page to add teams, rename them, and set a whole-
 
 Northstar prevents project allocations from exceeding their responsible team’s capacity and prevents a team’s capacity from being lowered below its current assignments.
 
-Use **Data** in the header to export a complete JSON backup or restore one later. Backups include projects, capacity, movement history, retrospectives, and planning-room data. A separate CSV status export includes only current Active and Blocked projects for concise reporting. Restoring validates the file before atomically replacing the current portfolio, so a failed restore leaves existing data unchanged.
+Use **Data** in the header to export a complete JSON backup or restore one later. Backups include projects, capacity, movement history, retrospectives, planning-room data, and kanban columns and cards. A separate CSV status export includes only current Active and Blocked projects for concise reporting. Restoring validates the file before atomically replacing the current portfolio, so a failed restore leaves existing data unchanged.
 
 ## Run with Docker
 

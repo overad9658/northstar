@@ -6,6 +6,7 @@ import { createProjectService, ProjectError } from './project-service.mjs';
 import { createTeamService } from './team-service.mjs';
 import { createSsoService } from './sso-service.mjs';
 import { createSsoSettings } from './sso-settings.mjs';
+import { createKanbanService, KanbanError } from './kanban-service.mjs';
 
 export function createApi(db, { apiToken = process.env.API_TOKEN } = {}) {
   const ssoSettings = createSsoSettings(db);
@@ -15,6 +16,7 @@ export function createApi(db, { apiToken = process.env.API_TOKEN } = {}) {
   const planning = createPlanningService(db);
   const projects = createProjectService(db);
   const teams = createTeamService(db);
+  const kanban = createKanbanService(db);
   const dataApi = createDataApi(db, projects, { apiToken });
   const requireUser = (req) => { const user = auth.userForRequest(req); if (!user) throw new AuthError(401, 'Authentication is required.'); return user; };
   const requireAdmin = (req) => { const user = requireUser(req); if (user.role !== 'admin') throw new AuthError(403, 'Admin access is required.'); return user; };
@@ -72,6 +74,29 @@ export function createApi(db, { apiToken = process.env.API_TOKEN } = {}) {
       if (!url.pathname.startsWith('/api/')) return false;
       requireUser(req);
 
+      if (url.pathname === '/api/kanban') {
+        if (req.method === 'GET') return json(res, 200, kanban.list({ includeHidden: user.role === 'admin' })), true;
+        return json(res, 405, { error: 'Method not allowed.' }), true;
+      }
+      const columnMatch = url.pathname.match(/^\/api\/kanban\/columns(?:\/(\d+))?$/);
+      if (columnMatch) {
+        requireAdmin(req);
+        const id = columnMatch[1] ? Number(columnMatch[1]) : null;
+        if (req.method === 'POST' && !id) return json(res, 201, kanban.createColumn(await readJson(req))), true;
+        if (req.method === 'PUT' && id) return json(res, 200, kanban.updateColumn(id, await readJson(req))), true;
+        if (req.method === 'DELETE' && id) { kanban.deleteColumn(id); res.writeHead(204); res.end(); return true; }
+        return json(res, 405, { error: 'Method not allowed.' }), true;
+      }
+      const cardMatch = url.pathname.match(/^\/api\/kanban\/cards(?:\/(\d+))?$/);
+      if (cardMatch) {
+        requireAdmin(req);
+        const id = cardMatch[1] ? Number(cardMatch[1]) : null;
+        if (req.method === 'POST' && !id) return json(res, 201, kanban.createCard(await readJson(req))), true;
+        if (req.method === 'PUT' && id) return json(res, 200, kanban.updateCard(id, await readJson(req))), true;
+        if (req.method === 'DELETE' && id) { kanban.deleteCard(id); res.writeHead(204); res.end(); return true; }
+        return json(res, 405, { error: 'Method not allowed.' }), true;
+      }
+
       if (url.pathname === '/api/capacity') {
         if (req.method === 'GET') return json(res, 200, projects.capacity({ includeHidden:user.role === 'admin' })), true;
         requireAdmin(req);
@@ -123,7 +148,7 @@ export function createApi(db, { apiToken = process.env.API_TOKEN } = {}) {
       if (req.method === 'DELETE' && id) { projects.delete(id); res.writeHead(204); res.end(); return true; }
       return json(res, 405, { error: 'Method not allowed.' }), true;
     } catch (error) {
-      const status = error instanceof PlanningError || error instanceof ProjectError || error instanceof AuthError ? error.status : 400;
+      const status = error instanceof PlanningError || error instanceof ProjectError || error instanceof AuthError || error instanceof KanbanError ? error.status : 400;
       const details = error instanceof PlanningError ? error.data : {};
       json(res, status, { error: error instanceof Error ? error.message : 'Request failed.', ...details });
       return true;

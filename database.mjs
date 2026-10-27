@@ -155,6 +155,24 @@ function createRelatedTables(db) {
       comment TEXT NOT NULL DEFAULT '',
       moved_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
+    CREATE TABLE IF NOT EXISTS kanban_columns (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL CHECK(length(name) BETWEEN 1 AND 80),
+      position INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS kanban_cards (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      column_id INTEGER NOT NULL REFERENCES kanban_columns(id) ON DELETE CASCADE,
+      project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL,
+      title TEXT NOT NULL CHECK(length(title) BETWEEN 1 AND 200),
+      description TEXT NOT NULL DEFAULT '',
+      position INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_kanban_cards_column_position ON kanban_cards(column_id, position, id);
+    CREATE INDEX IF NOT EXISTS idx_kanban_cards_project ON kanban_cards(project_id);
     CREATE TABLE IF NOT EXISTS planning_sessions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       token TEXT NOT NULL UNIQUE,
