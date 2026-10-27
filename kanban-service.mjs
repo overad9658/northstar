@@ -77,6 +77,10 @@ export function createKanbanService(db) {
   const nextPosition = (table, where = '', value) => db.prepare(`SELECT COALESCE(MAX(position), -1) + 1 AS next FROM ${table} ${where}`).get(...(value === undefined ? [] : [value])).next;
 
   return {
+    getCard(id, { includeHidden = false } = {}) {
+      visibleCard(id, includeHidden);
+      return card(id);
+    },
     list({ includeHidden = false } = {}) {
       const columns = db.prepare('SELECT id, name, position FROM kanban_columns ORDER BY position, id').all();
       const cards = db.prepare(`

@@ -183,6 +183,46 @@ The add response returns `{ count, projects }`; archive returns the same shape w
 projects; delete returns `{ count, projectIds }`. If `API_TOKEN` is unset, these endpoints return
 `503` while the existing browser-facing API remains available.
 
+## Kanban API for agents and remote clients
+
+The Kanban API accepts the same bearer token from **Menu → API access** or `API_TOKEN`. Use it in
+`Authorization: Bearer <token>` on each request. A valid token grants Kanban read and write access
+without a browser session; browser sessions retain their normal admin and read-only roles. Token
+rotation revokes access immediately. The token does not grant access to other admin endpoints.
+Use HTTPS when calling a remote Northstar host.
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/kanban` | List columns and cards, including tags and project links. |
+| `GET` | `/api/kanban/projects` | List available project IDs and names for card links. |
+| `POST` | `/api/kanban/columns` | Create a column with `{ "name": "To do" }`. |
+| `PUT`, `DELETE` | `/api/kanban/columns/:id` | Rename or delete a column. Deleting also deletes its cards. |
+| `POST` | `/api/kanban/cards` | Create a card with `columnId` and `title`; `description`, `projectId`, and `tags` are optional. |
+| `GET`, `PUT`, `DELETE` | `/api/kanban/cards/:id` | Read, partially update, or delete a card. `PUT` can move a card with `{ "columnId": 2 }`. |
+| `GET`, `POST` | `/api/kanban/cards/:id/notes` | List notes or add one with `{ "body": "..." }`. |
+| `DELETE` | `/api/kanban/cards/:id/notes/:noteId` | Delete one note. |
+| `GET` | `/api/kanban/cards/:id/history` | Read time spent in each column. |
+| `GET` | `/api/kanban/report` | Read all cards' column history and durations. |
+
+Tags are an array of up to 20 names, each 1–40 characters. Use `projectId: null` to unlink a
+card. `PUT` accepts only the fields you want to change, and returns the updated card. Successful
+creates return `201`, reads and updates return `200`, and deletes return `204`.
+
+```sh
+curl https://northstar.example.com/api/kanban/projects \
+  -H "Authorization: Bearer $API_TOKEN"
+
+curl -X POST https://northstar.example.com/api/kanban/cards \
+  -H "Authorization: Bearer $API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"columnId":1,"title":"Prepare release","projectId":3,"tags":["release"]}'
+
+curl -X PUT https://northstar.example.com/api/kanban/cards/7 \
+  -H "Authorization: Bearer $API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"columnId":2}'
+```
+
 ## Code structure
 
 - `server.mjs` owns process startup, shutdown, and static files.

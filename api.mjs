@@ -1,5 +1,5 @@
 import { AuthError, createAuthService } from './auth-service.mjs';
-import { createDataApi } from './data-api.mjs';
+import { createDataApi, isApiTokenAuthorized } from './data-api.mjs';
 import { json, readJson } from './http-utils.mjs';
 import { createPlanningService, PlanningError } from './planning-service.mjs';
 import { createProjectService, ProjectError } from './project-service.mjs';
@@ -23,6 +23,8 @@ export function createApi(db, { apiToken = process.env.API_TOKEN } = {}) {
 
   return async function api(req, res, url) {
     try {
+      const kanbanPath = url.pathname === '/api/kanban' || url.pathname.startsWith('/api/kanban/');
+      if (kanbanPath) res.setHeader('cache-control', 'no-store');
       if (url.pathname === '/api/admin/sso') {
         requireAdmin(req);
         res.setHeader('cache-control', 'no-store');
@@ -69,10 +71,18 @@ export function createApi(db, { apiToken = process.env.API_TOKEN } = {}) {
         return json(res, 405, { error: 'Method not allowed.' }), true;
       }
 
-      const user = auth.userForRequest(req);
-      if (await dataApi(req, res, url, user)) return true;
+      const sessionUser = auth.userForRequest(req);
+      const tokenUser = kanbanPath && isApiTokenAuthorized(db, req, { apiToken }) ? { id: 0, username: 'API token', role: 'admin' } : null;
+      const user = tokenUser || sessionUser;
+      if (await dataApi(req, res, url, sessionUser)) return true;
       if (!url.pathname.startsWith('/api/')) return false;
-      requireUser(req);
+      if (kanbanPath) {
+        if (!user) {
+          res.setHeader('www-authenticate', 'Bearer realm="Northstar kanban API"');
+          throw new AuthError(401, 'Authentication is required.');
+        }
+      } else requireUser(req);
+      const requireKanbanAdmin = () => { if (user.role !== 'admin') throw new AuthError(403, 'Admin access is required.'); };
 
       if (url.pathname === '/api/kanban') {
         if (req.method === 'GET') return json(res, 200, kanban.list({ includeHidden: user.role === 'admin' })), true;
@@ -82,9 +92,13 @@ export function createApi(db, { apiToken = process.env.API_TOKEN } = {}) {
         if (req.method === 'GET') return json(res, 200, kanban.report({ includeHidden: user.role === 'admin' })), true;
         return json(res, 405, { error: 'Method not allowed.' }), true;
       }
+      if (url.pathname === '/api/kanban/projects') {
+        if (req.method === 'GET') return json(res, 200, projects.list({ includeHidden: user.role === 'admin' }).map(({ id, projectId, name, status, archived }) => ({ id, projectId, name, status, archived }))), true;
+        return json(res, 405, { error: 'Method not allowed.' }), true;
+      }
       const columnMatch = url.pathname.match(/^\/api\/kanban\/columns(?:\/(\d+))?$/);
       if (columnMatch) {
-        requireAdmin(req);
+        requireKanbanAdmin();
         const id = columnMatch[1] ? Number(columnMatch[1]) : null;
         if (req.method === 'POST' && !id) return json(res, 201, kanban.createColumn(await readJson(req))), true;
         if (req.method === 'PUT' && id) return json(res, 200, kanban.updateColumn(id, await readJson(req))), true;
@@ -102,14 +116,15 @@ export function createApi(db, { apiToken = process.env.API_TOKEN } = {}) {
         const cardId = Number(noteMatch[1]);
         const noteId = noteMatch[2] ? Number(noteMatch[2]) : null;
         if (req.method === 'GET' && !noteId) return json(res, 200, kanban.listNotes(cardId, { includeHidden: user.role === 'admin' })), true;
-        requireAdmin(req);
+        requireKanbanAdmin();
         if (req.method === 'POST' && !noteId) return json(res, 201, kanban.createNote(cardId, await readJson(req))), true;
         if (req.method === 'DELETE' && noteId) { kanban.deleteNote(cardId, noteId); res.writeHead(204); res.end(); return true; }
         return json(res, 405, { error: 'Method not allowed.' }), true;
       }
       if (cardMatch) {
-        requireAdmin(req);
         const id = cardMatch[1] ? Number(cardMatch[1]) : null;
+        if (req.method === 'GET' && id) return json(res, 200, kanban.getCard(id, { includeHidden: user.role === 'admin' })), true;
+        requireKanbanAdmin();
         if (req.method === 'POST' && !id) return json(res, 201, kanban.createCard(await readJson(req))), true;
         if (req.method === 'PUT' && id) return json(res, 200, kanban.updateCard(id, await readJson(req))), true;
         if (req.method === 'DELETE' && id) { kanban.deleteCard(id); res.writeHead(204); res.end(); return true; }

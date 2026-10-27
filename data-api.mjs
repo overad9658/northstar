@@ -18,6 +18,11 @@ function authorized(req, expectedToken, expectedHash = '') {
   return supplied.length === expected.length && timingSafeEqual(supplied, expected);
 }
 
+export function isApiTokenAuthorized(db, req, { apiToken = process.env.API_TOKEN } = {}) {
+  const settings = db.prepare('SELECT api_token_hash AS hash FROM portfolio_settings WHERE id = 1').get();
+  return authorized(req, apiToken, settings?.hash);
+}
+
 function unauthorized(res) {
   res.writeHead(401, {
     'content-type': 'application/json; charset=utf-8',
@@ -59,7 +64,7 @@ export function createDataApi(db, projects, { apiToken = process.env.API_TOKEN }
       if (req.method !== 'POST') return json(res, 405, { error: 'Method not allowed.' }), true;
       const settings = apiTokenSettings();
       if (!settings.hash && !apiToken) return json(res, 503, { error: 'Bulk API token is not configured.' }), true;
-      if (!authorized(req, apiToken, settings.hash)) return unauthorized(res), true;
+      if (!isApiTokenAuthorized(db, req, { apiToken })) return unauthorized(res), true;
       const input = await readJson(req);
       if (bulkMatch[1] === 'add') {
         const created = projects.bulkCreate(input.projects);
