@@ -35,8 +35,9 @@ function cookieValue(req, name) {
   return '';
 }
 
-function publicUser(row) {
-  return row && { id: row.id, username: row.username, role: row.role, createdAt: row.created_at, authType: row.password_hash === '' ? 'sso' : 'local' };
+function publicUser(row, db) {
+  return row && { id: row.id, username: row.username, role: row.role, createdAt: row.created_at, authType: row.password_hash === '' ? 'sso' : 'local',
+    teamIds: db.prepare('SELECT team_id AS teamId FROM team_members WHERE user_id = ? ORDER BY team_id').all(row.id).map((item) => item.teamId) };
 }
 
 export function createAuthService(db, { disabled = process.env.AUTH_DISABLED === 'true', secureCookies = false, signupAllowed = process.env.SIGNUP_ALLOWED === 'true' } = {}) {
@@ -51,7 +52,7 @@ export function createAuthService(db, { disabled = process.env.AUTH_DISABLED ===
       SELECT u.* FROM auth_sessions s JOIN users u ON u.id = s.user_id
       WHERE s.token = ? AND s.expires_at > CURRENT_TIMESTAMP
     `).get(token);
-    return publicUser(row);
+    return publicUser(row, db);
   }
   function setSession(res, userId, req) {
     const token = randomBytes(32).toString('base64url');
@@ -69,11 +70,11 @@ export function createAuthService(db, { disabled = process.env.AUTH_DISABLED ===
   function createUser(input, setup = false) {
     const username = cleanUsername(input.username);
     const role = setup ? 'admin' : String(input.role || 'read_only');
-    if (!['admin', 'read_only'].includes(role)) throw new AuthError(400, 'Role must be admin or read_only.');
+    if (!['admin', 'team_manager', 'read_only'].includes(role)) throw new AuthError(400, 'Invalid role.');
     try {
       const result = db.prepare('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)')
         .run(username, passwordHash(input.password), role);
-      return publicUser(db.prepare('SELECT * FROM users WHERE id = ?').get(result.lastInsertRowid));
+      return publicUser(db.prepare('SELECT * FROM users WHERE id = ?').get(result.lastInsertRowid), db);
     } catch (error) {
       if (String(error.message).includes('UNIQUE')) throw new AuthError(409, 'That username is already in use.');
       throw error;
@@ -90,7 +91,7 @@ export function createAuthService(db, { disabled = process.env.AUTH_DISABLED ===
       if (!row) throw new AuthError(401, 'Account no longer exists.');
       db.prepare('DELETE FROM auth_sessions WHERE expires_at <= CURRENT_TIMESTAMP').run();
       setSession(res, userId, req);
-      return publicUser(row);
+      return publicUser(row, db);
     },
     setup(input, req, res) {
       if (disabled || usersCount()) throw new AuthError(409, 'Initial setup is already complete.');
@@ -106,10 +107,10 @@ export function createAuthService(db, { disabled = process.env.AUTH_DISABLED ===
       const row = db.prepare('SELECT * FROM users WHERE username = ? COLLATE NOCASE').get(String(input.username || '').trim());
       if (!row || !verifyPassword(input.password, row.password_hash)) throw new AuthError(401, 'Invalid username or password.');
       db.prepare('DELETE FROM auth_sessions WHERE expires_at <= CURRENT_TIMESTAMP').run();
-      setSession(res, row.id, req); return publicUser(row);
+      setSession(res, row.id, req); return publicUser(row, db);
     },
     logout: clearSession,
-    listUsers: () => db.prepare('SELECT * FROM users ORDER BY username COLLATE NOCASE').all().map(publicUser),
+    listUsers: () => db.prepare('SELECT * FROM users ORDER BY username COLLATE NOCASE').all().map((row) => publicUser(row, db)),
     createUser,
     updateUser(id, input, currentUser) {
       const row = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
@@ -117,12 +118,12 @@ export function createAuthService(db, { disabled = process.env.AUTH_DISABLED ===
       if (row.password_hash === '' && input.password) throw new AuthError(400, 'SSO account passwords are managed by the identity provider.');
       const username = input.username === undefined ? row.username : cleanUsername(input.username);
       const role = input.role === undefined ? row.role : String(input.role);
-      if (!['admin', 'read_only'].includes(role)) throw new AuthError(400, 'Role must be admin or read_only.');
+      if (!['admin', 'team_manager', 'read_only'].includes(role)) throw new AuthError(400, 'Invalid role.');
       if (row.role === 'admin' && role !== 'admin' && db.prepare("SELECT COUNT(*) AS count FROM users WHERE role = 'admin'").get().count === 1) throw new AuthError(409, 'At least one admin must remain.');
       const hash = input.password ? passwordHash(input.password) : row.password_hash;
       try { db.prepare('UPDATE users SET username = ?, role = ?, password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(username, role, hash, id); }
       catch (error) { if (String(error.message).includes('UNIQUE')) throw new AuthError(409, 'That username is already in use.'); throw error; }
-      return publicUser(db.prepare('SELECT * FROM users WHERE id = ?').get(id));
+      return publicUser(db.prepare('SELECT * FROM users WHERE id = ?').get(id), db);
     },
     deleteUser(id, currentUser) {
       if (id === currentUser.id) throw new AuthError(409, 'You cannot delete your own account.');

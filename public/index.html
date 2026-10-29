@@ -28,7 +28,7 @@
               <button class="app-menu-item" data-admin id="open-api-token" type="button"><span aria-hidden="true">⌁</span><strong>API access</strong><small>Generate a bearer token</small></button>
               <button class="app-menu-item" data-admin id="open-data" type="button"><span aria-hidden="true">↕</span><strong>Data &amp; exports</strong><small>Backup or restore</small></button>
               <button class="app-menu-item" data-admin id="open-planning" type="button"><span aria-hidden="true">◇</span><strong>Planning room</strong><small>Score projects together</small></button>
-              <button class="app-menu-item primary" data-admin id="add-project" type="button"><span aria-hidden="true">+</span><strong>Add project</strong><small>Create new work</small></button>
+              <button class="app-menu-item primary" data-project-editor id="add-project" type="button"><span aria-hidden="true">+</span><strong>Add project</strong><small>Create new work</small></button>
               <button class="app-menu-item" id="sign-out" type="button"><span aria-hidden="true">↪</span><strong>Sign out</strong><small>End this session</small></button>
             </div>
           </details>
@@ -108,7 +108,7 @@
       </section>
 
       <section class="project-list" aria-labelledby="project-list-title">
-        <div class="list-head"><div><p class="eyebrow">Portfolio details</p><h2 id="project-list-title">All projects</h2></div><div class="list-actions"><button class="button primary list-add-project" data-admin id="list-add-project" type="button"><span aria-hidden="true">+</span> Add project</button><label class="completed-toggle"><input id="show-archived" type="checkbox"> Show archived</label><span id="list-count">0 projects</span></div></div>
+        <div class="list-head"><div><p class="eyebrow">Portfolio details</p><h2 id="project-list-title">All projects</h2></div><div class="list-actions"><button class="button primary list-add-project" data-project-editor id="list-add-project" type="button"><span aria-hidden="true">+</span> Add project</button><label class="completed-toggle"><input id="show-archived" type="checkbox"> Show archived</label><span id="list-count">0 projects</span></div></div>
         <div id="project-rows"></div>
       </section>
     </main>

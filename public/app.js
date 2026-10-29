@@ -28,6 +28,9 @@ const appMenu = $('#app-menu');
 const matrixCard = $('#priority-matrix-card');
 const projectPreview = $('#project-preview');
 let previewHideTimer;
+function canEditProject(project) {
+  return state.user?.role === 'admin' || (state.user?.role === 'team_manager' && state.teams.some((team) => team.name === project.team && state.user.teamIds.includes(team.id)));
+}
 function syncTeamFilter() {
   const teams = state.teams.map((team) => team.name);
   state.selectedTeams = state.selectedTeams.filter((team) => teams.includes(team));
@@ -37,11 +40,12 @@ function syncTeamFilter() {
     ${teams.map((team) => `<label><input type="checkbox" value="${escapeHtml(team)}" ${state.selectedTeams.includes(team) ? 'checked' : ''}> ${escapeHtml(team)}</label>`).join('')}`;
   const teamSelect = form.elements.team;
   const currentTeam = teamSelect.value;
-  const signature = teams.join('\u0000');
+  const editableTeams = state.user?.role === 'admin' ? teams : state.teams.filter((team) => state.user?.teamIds?.includes(team.id)).map((team) => team.name);
+  const signature = editableTeams.join('\u0000');
   if (teamSelect.dataset.teams !== signature) {
-    teamSelect.replaceChildren(...teams.map((team) => new Option(team, team)));
+    teamSelect.replaceChildren(...editableTeams.map((team) => new Option(team, team)));
     teamSelect.dataset.teams = signature;
-    if (teams.includes(currentTeam)) teamSelect.value = currentTeam;
+    if (editableTeams.includes(currentTeam)) teamSelect.value = currentTeam;
   }
 }
 
@@ -126,10 +130,14 @@ async function request(path = '', options) {
 async function load() {
   try {
     state.user = await requestJson('/api/auth/me');
-    document.body.classList.toggle('read-only', state.user.role !== 'admin');
-    $('#current-user').textContent = `${state.user.username} · ${state.user.role === 'admin' ? 'Admin' : 'Read only'}`;
+    document.body.classList.toggle('read-only', state.user.role === 'read_only');
+    $('#current-user').textContent = `${state.user.username} · ${state.user.role === 'admin' ? 'Admin' : state.user.role === 'team_manager' ? 'Team manager' : 'Team member'}`;
     document.querySelectorAll('[data-admin]').forEach((element) => { element.hidden = state.user.role !== 'admin'; });
     [state.projects, state.teams] = await Promise.all([request(), requestJson('/api/teams')]);
+    const teamParam = new URLSearchParams(location.search).get('team');
+    if (teamParam && state.teams.some((team) => team.name === teamParam)) state.selectedTeams = [teamParam];
+    document.querySelectorAll('[data-project-editor]').forEach((element) => { element.hidden = state.user.role !== 'admin' && !(state.user.role === 'team_manager' && state.user.teamIds.length); });
+    $('#empty-add').hidden = state.user.role !== 'admin' && !(state.user.role === 'team_manager' && state.user.teamIds.length);
     render();
   } catch (error) {
     toast(error.message);
@@ -170,7 +178,7 @@ function renderMatrix(matrixProjects) {
     dot.addEventListener('pointerleave', () => hideProjectPreview());
     dot.addEventListener('focus', () => showProjectPreview(project, dot));
     dot.addEventListener('blur', () => hideProjectPreview());
-    if (state.user.role === 'admin') {
+    if (canEditProject(project)) {
       dot.addEventListener('pointerdown', beginDrag);
       dot.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') openDialog(project); });
     }
@@ -206,6 +214,9 @@ function renderProjectList(projects) {
 
 function render() {
   syncTeamFilter();
+  const teamView = state.selectedTeams.length === 1 ? state.selectedTeams[0] : null;
+  $('.intro .eyebrow').textContent = teamView ? `${teamView} team view` : 'Portfolio view';
+  $('.matrix-head h2').textContent = teamView ? `${teamView} priority matrix` : 'Priority matrix';
   const {
     visible: projects,
     portfolio: allPortfolioProjects,
@@ -224,6 +235,8 @@ function projectFromTarget(target) {
 }
 
 function openDialog(project = null) {
+  if (project && !canEditProject(project)) return;
+  if (!project && state.user?.role !== 'admin' && !state.user?.teamIds?.length) { toast('Join a team before creating a project.'); return; }
   if (!project && !state.teams.length) {
     toast('Add a team before creating a project.');
     location.href = '/teams.html';
@@ -246,7 +259,8 @@ function openDialog(project = null) {
     $('#start-planning').disabled = Boolean(project.archived) || project.status === 'Complete';
   } else {
     Object.assign(form.elements, {});
-    form.elements.team.value = state.selectedTeams[0] || state.teams[0]?.name || '';
+    const editable = state.teams.filter((team) => state.user.role === 'admin' || state.user.teamIds.includes(team.id));
+    form.elements.team.value = editable.some((team) => team.name === state.selectedTeams[0]) ? state.selectedTeams[0] : editable[0]?.name || '';
     form.elements.status.value = 'Active';
     form.elements.scheduleStage.value = 'To plan';
     form.elements.capacity.value = 0;
@@ -259,6 +273,7 @@ function openDialog(project = null) {
   }
   syncOutputs();
   syncProjectFields();
+  $('#start-planning').hidden = state.user.role !== 'admin';
   dialog.showModal();
   requestAnimationFrame(() => form.elements.name.focus());
 }
@@ -701,8 +716,8 @@ $('#cancel-archive-note').addEventListener('click', cancelArchiveSave);
 form.addEventListener('submit', saveProject);
 form.addEventListener('input', (event) => { if (event.target.type === 'range') syncOutputs(); });
 form.addEventListener('change', (event) => { if (event.target.name === 'status' || event.target.name === 'scheduleStage') syncProjectFields(); });
-document.addEventListener('click', (event) => { const project = projectFromTarget(event.target); if (state.user?.role === 'admin' && project && !event.target.closest('.project-dot,[data-external-link]')) openDialog(project); });
-document.addEventListener('keydown', (event) => { if (state.user?.role === 'admin' && (event.key === 'Enter' || event.key === ' ') && event.target.matches('.project-row, .ranking article')) openDialog(projectFromTarget(event.target)); });
+document.addEventListener('click', (event) => { const project = projectFromTarget(event.target); if (project && canEditProject(project) && !event.target.closest('.project-dot,[data-external-link]')) openDialog(project); });
+document.addEventListener('keydown', (event) => { const project = projectFromTarget(event.target); if (project && canEditProject(project) && (event.key === 'Enter' || event.key === ' ') && event.target.matches('.project-row, .ranking article')) openDialog(project); });
 document.querySelectorAll('.tab').forEach((tab) => tab.addEventListener('click', () => {
   state.status = tab.dataset.status;
   state.showCompleted = state.status === 'Complete';

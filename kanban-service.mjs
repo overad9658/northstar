@@ -52,12 +52,12 @@ export function createKanbanService(db) {
     tags.forEach((tag) => insert.run(cardId, tag));
   };
   const column = (id) => {
-    const row = db.prepare('SELECT id, name, position FROM kanban_columns WHERE id = ?').get(id);
+    const row = db.prepare('SELECT id, name, position, team_id AS teamId FROM kanban_columns WHERE id = ?').get(id);
     if (!row) throw new KanbanError(404, 'Column not found.');
     return row;
   };
   const card = (id) => {
-    const row = db.prepare('SELECT id, column_id AS columnId, project_id AS projectId, title, description, position, created_at AS createdAt, updated_at AS updatedAt FROM kanban_cards WHERE id = ?').get(id);
+    const row = db.prepare('SELECT id, column_id AS columnId, project_id AS projectId, team_id AS teamId, title, description, position, created_at AS createdAt, updated_at AS updatedAt FROM kanban_cards WHERE id = ?').get(id);
     if (!row) throw new KanbanError(404, 'Card not found.');
     return { ...row, tags: tagsFor(id) };
   };
@@ -75,23 +75,31 @@ export function createKanbanService(db) {
     if (!row) throw new KanbanError(404, 'Card not found.');
   };
   const nextPosition = (table, where = '', value) => db.prepare(`SELECT COALESCE(MAX(position), -1) + 1 AS next FROM ${table} ${where}`).get(...(value === undefined ? [] : [value])).next;
+  const defaultTeamId = () => db.prepare('SELECT id FROM teams ORDER BY id LIMIT 1').get()?.id;
+  const checkTeam = (actual, expected) => { if (expected && actual !== expected) throw new KanbanError(404, 'Item not found on this team board.'); };
+  const checkProjectTeam = (linkedProjectId, teamId) => {
+    if (!linkedProjectId) return;
+    const project = db.prepare('SELECT team FROM projects WHERE id = ?').get(linkedProjectId);
+    const team = db.prepare('SELECT name FROM teams WHERE id = ?').get(teamId);
+    if (!team || project.team.toLocaleLowerCase() !== team.name.toLocaleLowerCase()) throw new KanbanError(400, 'A card can only link to a project on its team.');
+  };
 
   return {
-    getCard(id, { includeHidden = false } = {}) {
+    getCard(id, { includeHidden = false, teamId } = {}) {
       visibleCard(id, includeHidden);
-      return card(id);
+      const item = card(id); checkTeam(item.teamId, teamId); return item;
     },
-    list({ includeHidden = false } = {}) {
-      const columns = db.prepare('SELECT id, name, position FROM kanban_columns ORDER BY position, id').all();
+    list({ includeHidden = false, teamId } = {}) {
+      const columns = db.prepare(`SELECT id, name, position, team_id AS teamId FROM kanban_columns ${teamId ? 'WHERE team_id = ?' : ''} ORDER BY position, id`).all(...(teamId ? [teamId] : []));
       const cards = db.prepare(`
-        SELECT c.id, c.column_id AS columnId, c.project_id AS projectId, c.title, c.description,
+        SELECT c.id, c.column_id AS columnId, c.project_id AS projectId, c.team_id AS teamId, c.title, c.description,
           c.position, c.created_at AS createdAt, c.updated_at AS updatedAt,
           p.name AS projectName, p.project_id AS projectCode,
           (SELECT COUNT(*) FROM kanban_card_notes n WHERE n.card_id = c.id) AS noteCount
         FROM kanban_cards c LEFT JOIN projects p ON p.id = c.project_id
-        ${includeHidden ? '' : 'WHERE p.id IS NULL OR p.hidden_from_read_only = 0'}
+        WHERE (${includeHidden ? '1 = 1' : 'p.id IS NULL OR p.hidden_from_read_only = 0'}) ${teamId ? 'AND c.team_id = ?' : ''}
         ORDER BY c.column_id, c.position, c.id
-      `).all();
+      `).all(...(teamId ? [teamId] : []));
       const tags = db.prepare('SELECT card_id AS cardId, name FROM kanban_card_tags ORDER BY name').all();
       const cardTags = new Map();
       tags.forEach((tag) => cardTags.set(tag.cardId, [...(cardTags.get(tag.cardId) || []), tag.name]));
@@ -100,29 +108,33 @@ export function createKanbanService(db) {
     },
     createColumn(input) {
       const name = requiredText(input?.name, 'Column name', 80);
-      const result = db.prepare('INSERT INTO kanban_columns (name, position) VALUES (?, ?)').run(name, nextPosition('kanban_columns'));
+      const teamId = input?.teamId || defaultTeamId();
+      if (!db.prepare('SELECT 1 FROM teams WHERE id = ?').get(teamId)) throw new KanbanError(400, 'Team not found.');
+      const result = db.prepare('INSERT INTO kanban_columns (name, position, team_id) VALUES (?, ?, ?)').run(name, nextPosition('kanban_columns', 'WHERE team_id = ?', teamId), teamId);
       return column(result.lastInsertRowid);
     },
     updateColumn(id, input) {
-      column(id);
+      checkTeam(column(id).teamId, input?.teamId);
       const name = requiredText(input?.name, 'Column name', 80);
       db.prepare('UPDATE kanban_columns SET name = ? WHERE id = ?').run(name, id);
       return column(id);
     },
-    deleteColumn(id) {
-      column(id);
+    deleteColumn(id, teamId) {
+      checkTeam(column(id).teamId, teamId);
       db.prepare('DELETE FROM kanban_columns WHERE id = ?').run(id);
     },
     createCard(input) {
       const columnId = positiveId(input?.columnId, 'Column');
-      column(columnId);
+      const teamId = input?.teamId || column(columnId).teamId || defaultTeamId();
+      checkTeam(column(columnId).teamId, teamId);
       const title = requiredText(input?.title, 'Card title', 200);
       const description = optionalText(input?.description, 'Description', 2000);
       const linkedProjectId = projectId(input?.projectId);
+      checkProjectTeam(linkedProjectId, teamId);
       const tags = normalizeTags(input?.tags ?? []);
       return transaction(db, () => {
-        const result = db.prepare('INSERT INTO kanban_cards (column_id, project_id, title, description, position) VALUES (?, ?, ?, ?, ?)')
-          .run(columnId, linkedProjectId, title, description, nextPosition('kanban_cards', 'WHERE column_id = ?', columnId));
+        const result = db.prepare('INSERT INTO kanban_cards (column_id, project_id, team_id, title, description, position) VALUES (?, ?, ?, ?, ?, ?)')
+          .run(columnId, linkedProjectId, teamId, title, description, nextPosition('kanban_cards', 'WHERE column_id = ?', columnId));
         db.prepare('INSERT INTO kanban_card_history (card_id, column_id, column_name, entered_at) VALUES (?, ?, ?, ?)')
           .run(result.lastInsertRowid, columnId, column(columnId).name, new Date().toISOString());
         saveTags(result.lastInsertRowid, tags);
@@ -131,11 +143,13 @@ export function createKanbanService(db) {
     },
     updateCard(id, input) {
       const current = card(id);
+      checkTeam(current.teamId, input?.teamId);
       const columnId = input?.columnId === undefined ? current.columnId : positiveId(input.columnId, 'Column');
-      column(columnId);
+      checkTeam(column(columnId).teamId, current.teamId);
       const title = input?.title === undefined ? current.title : requiredText(input.title, 'Card title', 200);
       const description = input?.description === undefined ? current.description : optionalText(input.description, 'Description', 2000);
       const linkedProjectId = input?.projectId === undefined ? current.projectId : projectId(input.projectId);
+      checkProjectTeam(linkedProjectId, current.teamId);
       const tags = input?.tags === undefined ? null : normalizeTags(input.tags);
       const position = columnId === current.columnId ? current.position : nextPosition('kanban_cards', 'WHERE column_id = ?', columnId);
       return transaction(db, () => {
@@ -151,28 +165,30 @@ export function createKanbanService(db) {
         return card(id);
       });
     },
-    deleteCard(id) {
-      card(id);
+    deleteCard(id, teamId) {
+      checkTeam(card(id).teamId, teamId);
       db.prepare('DELETE FROM kanban_cards WHERE id = ?').run(id);
     },
-    listNotes(cardId, { includeHidden = false } = {}) {
+    listNotes(cardId, { includeHidden = false, teamId } = {}) {
       visibleCard(cardId, includeHidden);
+      checkTeam(card(cardId).teamId, teamId);
       return db.prepare('SELECT id, card_id AS cardId, body, created_at AS createdAt FROM kanban_card_notes WHERE card_id = ? ORDER BY created_at, id').all(cardId);
     },
     createNote(cardId, input) {
-      card(cardId);
+      checkTeam(card(cardId).teamId, input?.teamId);
       const body = requiredText(input?.body, 'Note', 2000);
       const result = db.prepare('INSERT INTO kanban_card_notes (card_id, body) VALUES (?, ?)').run(cardId, body);
       return db.prepare('SELECT id, card_id AS cardId, body, created_at AS createdAt FROM kanban_card_notes WHERE id = ?').get(result.lastInsertRowid);
     },
-    deleteNote(cardId, noteId) {
-      card(cardId);
+    deleteNote(cardId, noteId, teamId) {
+      checkTeam(card(cardId).teamId, teamId);
       if (!db.prepare('DELETE FROM kanban_card_notes WHERE id = ? AND card_id = ?').run(noteId, cardId).changes) {
         throw new KanbanError(404, 'Note not found.');
       }
     },
-    history(cardId, { includeHidden = false } = {}) {
+    history(cardId, { includeHidden = false, teamId } = {}) {
       visibleCard(cardId, includeHidden);
+      checkTeam(card(cardId).teamId, teamId);
       const asOf = new Date().toISOString();
       const entries = db.prepare(`
         SELECT id, card_id AS cardId, column_id AS columnId, column_name AS columnName,
@@ -181,7 +197,7 @@ export function createKanbanService(db) {
       `).all(cardId).map((row) => withDuration(row, asOf));
       return { asOf, entries };
     },
-    report({ includeHidden = false } = {}) {
+    report({ includeHidden = false, teamId } = {}) {
       const asOf = new Date().toISOString();
       const rows = db.prepare(`
         SELECT h.id, h.card_id AS cardId, c.title AS cardTitle,
@@ -190,9 +206,9 @@ export function createKanbanService(db) {
           h.entered_at AS enteredAt, h.exited_at AS exitedAt
         FROM kanban_card_history h JOIN kanban_cards c ON c.id = h.card_id
         LEFT JOIN projects p ON p.id = c.project_id
-        ${includeHidden ? '' : 'WHERE p.id IS NULL OR p.hidden_from_read_only = 0'}
+        WHERE (${includeHidden ? '1 = 1' : 'p.id IS NULL OR p.hidden_from_read_only = 0'}) ${teamId ? 'AND c.team_id = ?' : ''}
         ORDER BY c.id, h.entered_at, h.id
-      `).all().map((row) => withDuration(row, asOf));
+      `).all(...(teamId ? [teamId] : [])).map((row) => withDuration(row, asOf));
       return { asOf, rows };
     },
   };

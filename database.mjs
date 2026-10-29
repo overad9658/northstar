@@ -113,7 +113,7 @@ function createRelatedTables(db) {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT NOT NULL COLLATE NOCASE UNIQUE,
       password_hash TEXT NOT NULL,
-      role TEXT NOT NULL CHECK(role IN ('admin', 'read_only')),
+      role TEXT NOT NULL CHECK(role IN ('admin', 'team_manager', 'read_only')),
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
@@ -266,6 +266,56 @@ function migrateTeams(db) {
   rows.forEach((team, index) => insert.run(team.name, team.occupied + (index === 0 ? remaining : 0)));
 }
 
+function migrateTeamWorkspace(db) {
+  ensureColumn(db, 'kanban_columns', 'team_id', 'INTEGER REFERENCES teams(id) ON DELETE CASCADE');
+  ensureColumn(db, 'kanban_cards', 'team_id', 'INTEGER REFERENCES teams(id) ON DELETE CASCADE');
+  db.exec(`CREATE TABLE IF NOT EXISTS team_members (
+    team_id INTEGER NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    PRIMARY KEY (team_id, user_id)
+  )`);
+  const first = db.prepare('SELECT id FROM teams ORDER BY id LIMIT 1').get();
+  if (!first) return;
+  db.prepare('UPDATE kanban_columns SET team_id = ? WHERE team_id IS NULL').run(first.id);
+  db.exec(`UPDATE kanban_cards SET team_id = (
+    SELECT t.id FROM projects p JOIN teams t ON t.name = p.team COLLATE NOCASE WHERE p.id = kanban_cards.project_id
+  ) WHERE team_id IS NULL AND project_id IS NOT NULL`);
+  db.prepare('UPDATE kanban_cards SET team_id = ? WHERE team_id IS NULL').run(first.id);
+  // Linked legacy cards must point to a column on their project's team board.
+  const misplaced = db.prepare('SELECT c.id, c.team_id AS teamId, k.name FROM kanban_cards c JOIN kanban_columns k ON k.id = c.column_id WHERE c.team_id != k.team_id').all();
+  for (const card of misplaced) {
+    const target = db.prepare('SELECT id FROM kanban_columns WHERE team_id = ? AND name = ? ORDER BY id LIMIT 1').get(card.teamId, card.name)
+      || { id: db.prepare('INSERT INTO kanban_columns (name, position, team_id) VALUES (?, 0, ?)').run(card.name, card.teamId).lastInsertRowid };
+    db.prepare('UPDATE kanban_cards SET column_id = ? WHERE id = ?').run(target.id, card.id);
+  }
+}
+
+function migrateTeamManagerRole(db) {
+  if (db.dialect === 'postgres') {
+    db.exec('ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check');
+    db.exec("ALTER TABLE users ADD CONSTRAINT users_role_check CHECK(role IN ('admin', 'team_manager', 'read_only'))");
+    return;
+  }
+  const definition = db.prepare("SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = 'users'").get().sql;
+  if (definition.includes("'team_manager'")) return;
+  db.exec('PRAGMA foreign_keys = OFF');
+  try {
+    transaction(db, () => db.exec(`
+      CREATE TABLE users_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT NOT NULL COLLATE NOCASE UNIQUE,
+        password_hash TEXT NOT NULL,
+        role TEXT NOT NULL CHECK(role IN ('admin', 'team_manager', 'read_only')),
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      INSERT INTO users_new SELECT * FROM users;
+      DROP TABLE users;
+      ALTER TABLE users_new RENAME TO users;
+    `));
+  } finally { db.exec('PRAGMA foreign_keys = ON'); }
+}
+
 function migratePlanningVotes(db) {
   if (!tableExists(db, 'planning_votes')) return db.exec(planningVotesTableSql);
   if (hasColumn(db, 'planning_votes', 'project_id')) return;
@@ -298,6 +348,8 @@ export function openDatabase(filePath, { client = 'sqlite', connectionString } =
         createRelatedTables(db);
         backfillKanbanHistory(db);
         migrateTeams(db);
+        migrateTeamWorkspace(db);
+        migrateTeamManagerRole(db);
         migratePlanningVotes(db);
         db.exec(`
           CREATE INDEX IF NOT EXISTS idx_planning_room_projects ON planning_session_projects(session_id, position);
@@ -315,12 +367,14 @@ export function openDatabase(filePath, { client = 'sqlite', connectionString } =
   createRelatedTables(db);
   backfillKanbanHistory(db);
   migrateTeams(db);
+  migrateTeamWorkspace(db);
+  migrateTeamManagerRole(db);
   migratePlanningVotes(db);
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_planning_room_projects ON planning_session_projects(session_id, position);
     CREATE INDEX IF NOT EXISTS idx_planning_votes_session_project ON planning_votes(session_id, project_id, updated_at);
     CREATE INDEX IF NOT EXISTS idx_project_moves_project_date ON project_moves(project_id, moved_at DESC, id DESC);
-    PRAGMA user_version = 6;
+    PRAGMA user_version = 7;
     PRAGMA optimize;
   `);
   return db;

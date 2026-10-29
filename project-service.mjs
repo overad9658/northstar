@@ -144,6 +144,18 @@ export function createProjectService(db) {
       transaction(db, () => {
         db.prepare('UPDATE projects SET project_id = ?, external_url = ?, name = ?, description = ?, retrospective = ?, blocked_note = ?, archive_note = ?, restore_note = ?, team = ?, status = ?, schedule_stage = ?, capacity = ?, archived = ?, hidden_from_read_only = ?, impact = ?, urgency = ?, confidence = ?, effort = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
           .run(project.projectId ?? project.project_id ?? '', project.externalUrl ?? project.external_url ?? '', project.name, project.description, project.retrospective, project.blockedNote, project.archiveNote, project.restoreNote, project.team, project.status, project.scheduleStage ?? project.schedule_stage ?? 'To plan', project.capacity, project.archived, project.hiddenFromReadOnly, project.impact, project.urgency, project.confidence, project.effort, id);
+        if (current.team.toLocaleLowerCase() !== project.team.toLocaleLowerCase()) {
+          const destinationTeam = db.prepare('SELECT id FROM teams WHERE name = ? COLLATE NOCASE').get(project.team);
+          const cards = db.prepare('SELECT c.id, k.name FROM kanban_cards c JOIN kanban_columns k ON k.id = c.column_id WHERE c.project_id = ?').all(id);
+          for (const card of cards) {
+            let column = db.prepare('SELECT id FROM kanban_columns WHERE team_id = ? AND name = ? ORDER BY id LIMIT 1').get(destinationTeam.id, card.name);
+            if (!column) {
+              const position = db.prepare('SELECT COALESCE(MAX(position), -1) + 1 AS next FROM kanban_columns WHERE team_id = ?').get(destinationTeam.id).next;
+              column = { id: db.prepare('INSERT INTO kanban_columns (name, position, team_id) VALUES (?, ?, ?)').run(card.name, position, destinationTeam.id).lastInsertRowid };
+            }
+            db.prepare('UPDATE kanban_cards SET team_id = ?, column_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(destinationTeam.id, column.id, card.id);
+          }
+        }
         if (current.impact !== project.impact || current.urgency !== project.urgency) {
           db.prepare('INSERT INTO project_moves (project_id, from_impact, from_urgency, to_impact, to_urgency, source, comment) VALUES (?, ?, ?, ?, ?, ?, ?)')
             .run(id, current.impact, current.urgency, project.impact, project.urgency, moveSource, moveComment);

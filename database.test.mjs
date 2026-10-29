@@ -20,7 +20,7 @@ test('openDatabase creates the current schema and records its version', async ()
   const directory = await mkdtemp(join(tmpdir(), 'northstar-schema-'));
   const db = openDatabase(join(directory, 'northstar.db'));
   try {
-    assert.equal(db.prepare('PRAGMA user_version').get().user_version, 6);
+    assert.equal(db.prepare('PRAGMA user_version').get().user_version, 7);
     const tables = db.prepare("SELECT name FROM sqlite_schema WHERE type = 'table'").all().map((row) => row.name);
     assert.ok(tables.includes('projects'));
     assert.ok(tables.includes('planning_sessions'));

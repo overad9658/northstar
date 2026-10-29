@@ -5,6 +5,10 @@ const addForm = document.querySelector('#add-team-form');
 const errorMessage = document.querySelector('#team-form-error');
 let teams = [];
 let canEdit = false;
+let currentUser;
+let users = [];
+let membersByTeam = new Map();
+const canManage = (team) => currentUser?.role === 'admin' || (currentUser?.role === 'team_manager' && currentUser.teamIds.includes(team.id));
 
 function teamRequest(path = '', options) {
   return requestJson(`/api/teams${path}`, options, 'Teams could not be saved.');
@@ -15,19 +19,22 @@ function render() {
   list.innerHTML = teams.length ? teams.map((team) => `
     <form class="team-settings-row" data-id="${team.id}">
       <label class="field"><span>Team</span><input name="name" maxlength="50" value="${escapeHtml(team.name)}" required ${canEdit ? '' : 'readonly'}></label>
-      <label class="field"><span>People capacity</span><input name="capacity" type="number" min="${team.occupied}" max="9999" step="1" value="${team.capacity}" required ${canEdit ? '' : 'readonly'}></label>
+      <label class="field"><span>People capacity</span><input name="capacity" type="number" min="${team.occupied}" max="9999" step="1" value="${team.capacity}" required ${canManage(team) ? '' : 'readonly'}></label>
       <div class="team-utilization"><span>Assigned</span><strong>${team.occupied} of ${team.capacity}</strong><small>${team.available} available · ${team.projectCount} ${team.projectCount === 1 ? 'project' : 'projects'}</small></div>
-      <div class="team-row-actions" ${canEdit ? '' : 'hidden'}><button class="button secondary save-team" type="submit">Save</button><button class="text-danger delete-team" type="button" ${team.projectCount || teams.length === 1 ? `disabled title="${team.projectCount ? 'Move or delete this team’s projects first' : 'At least one team must remain'}"` : ''}>Delete</button></div>
+      <div class="team-row-actions"><a class="button secondary button-link" href="/?team=${encodeURIComponent(team.name)}">Matrix</a><a class="button secondary button-link" href="/kanban.html?teamId=${team.id}">Board</a>${canManage(team) ? '<button class="button secondary save-team" type="submit">Save</button>' : ''}${canEdit ? `<button class="text-danger delete-team" type="button" ${team.projectCount || team.cardCount || teams.length === 1 ? `disabled title="${team.projectCount || team.cardCount ? 'Move or delete this team’s projects and cards first' : 'At least one team must remain'}"` : ''}>Delete</button>` : ''}</div>
       <p class="form-error" role="alert"></p>
-    </form>`).join('') : '<div class="settings-empty"><h3>No teams configured</h3><p>Add a team above before creating projects.</p></div>';
+    </form>
+    <div class="team-members" data-team-id="${team.id}"><strong>Members (${team.memberCount})</strong><div>${(membersByTeam.get(team.id) || []).map((member) => `<span class="team-member">${escapeHtml(member.username)}${canManage(team) ? ` <button class="remove-member" type="button" data-user-id="${member.id}" aria-label="Remove ${escapeHtml(member.username)} from ${escapeHtml(team.name)}">×</button>` : ''}</span>`).join('') || '<span>No members yet</span>'}</div>${canManage(team) ? `<form class="add-member-form"><select name="userId" aria-label="Add a team member" required><option value="">Choose a user</option>${users.filter((user) => !(membersByTeam.get(team.id) || []).some((member) => member.id === user.id)).map((user) => `<option value="${user.id}">${escapeHtml(user.username)} · ${user.role === 'team_manager' ? 'Team manager' : user.role === 'admin' ? 'Admin' : 'Member'}</option>`).join('')}</select><button class="button secondary" type="submit">Add member</button></form>` : ''}<p class="form-error"></p></div>`).join('') : '<div class="settings-empty"><h3>No teams configured</h3><p>Add a team above before creating projects.</p></div>';
 }
 
 async function load() {
   try {
-    const user = await requestJson('/api/auth/me');
-    canEdit = user.role === 'admin';
+    currentUser = await requestJson('/api/auth/me');
+    canEdit = currentUser.role === 'admin';
     addForm.hidden = !canEdit;
     teams = await teamRequest();
+    users = currentUser.role === 'admin' || currentUser.role === 'team_manager' ? await requestJson('/api/users') : [];
+    membersByTeam = new Map(await Promise.all(teams.map(async (team) => [team.id, await teamRequest(`/${team.id}/members`)])));
     render();
   } catch (error) {
     errorMessage.textContent = error.message;
@@ -43,6 +50,7 @@ addForm.addEventListener('submit', async (event) => {
   button.disabled = true;
   try {
     teams.push(await teamRequest('', { method:'POST', headers:{ 'content-type':'application/json' }, body:JSON.stringify(data) }));
+    membersByTeam.set(teams.at(-1).id, []);
     teams.sort((a, b) => a.name.localeCompare(b.name));
     addForm.reset();
     render();
@@ -55,6 +63,7 @@ addForm.addEventListener('submit', async (event) => {
 });
 
 list.addEventListener('submit', async (event) => {
+  if (!event.target.matches('.team-settings-row')) return;
   event.preventDefault();
   const row = event.target.closest('.team-settings-row');
   const id = Number(row.dataset.id);
@@ -77,6 +86,14 @@ list.addEventListener('submit', async (event) => {
 });
 
 list.addEventListener('click', async (event) => {
+  const removeMember = event.target.closest('.remove-member');
+  if (removeMember) {
+    const container = removeMember.closest('[data-team-id]');
+    const teamId = Number(container.dataset.teamId), userId = Number(removeMember.dataset.userId);
+    try { await teamRequest(`/${teamId}/members/${userId}`, { method:'DELETE' }); await load(); showToast('Member removed'); }
+    catch (error) { container.querySelector('.form-error').textContent = error.message; }
+    return;
+  }
   const button = event.target.closest('.delete-team');
   if (!button) return;
   const row = button.closest('.team-settings-row');
@@ -93,6 +110,15 @@ list.addEventListener('click', async (event) => {
     row.querySelector('.form-error').textContent = error.message;
     button.disabled = false;
   }
+});
+
+list.addEventListener('submit', async (event) => {
+  if (!event.target.matches('.add-member-form')) return;
+  event.preventDefault();
+  const container = event.target.closest('[data-team-id]');
+  const teamId = Number(container.dataset.teamId), userId = Number(event.target.elements.userId.value);
+  try { await teamRequest(`/${teamId}/members`, { method:'POST', headers:{ 'content-type':'application/json' }, body:JSON.stringify({ userId }) }); await load(); showToast('Member added'); }
+  catch (error) { container.querySelector('.form-error').textContent = error.message; }
 });
 
 load();
