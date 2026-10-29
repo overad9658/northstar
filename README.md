@@ -103,6 +103,53 @@ database. They replace portfolio data, so never use a production database:
 TEST_DATABASE_URL='postgresql://northstar:password@localhost:5432/northstar_test' pnpm test
 ```
 
+## Releases and semantic versioning
+
+Releases use [Release Please](https://github.com/googleapis/release-please-action) and
+Conventional Commits on `main`. Use these commit messages (or squash-merge PR titles):
+
+| Commit example | Version change from 1.2.3 |
+| --- | --- |
+| `fix: correct project sorting` | Patch: 1.2.4 |
+| `feat: add a portfolio export` | Minor: 1.3.0 |
+| `feat!: change the backup format` | Major: 2.0.0 |
+| `docs: update setup instructions` or `chore: update tooling` | No release on its own |
+
+A `BREAKING CHANGE:` footer also requests a major version bump. The largest change since the
+previous release determines the next version. Treat incompatible API, configuration, or backup
+format changes as breaking changes.
+
+After checks pass on `main`, the **Release** workflow opens or updates a release PR containing
+the next `package.json` version, `CHANGELOG.md`, and release manifest. Review and merge that PR
+to publish the `vX.Y.Z` tag and GitHub release. Checks run again on the merged commit before
+publication. This private application is distributed as a container; it is not published to npm.
+
+The initial baseline is the existing `1.0.0` package version at commit `72a146e`. Earlier history
+is excluded from the first changelog; the next `fix:` or `feat:` commit starts the first release
+PR. Version updates do not change dependencies, so the pnpm lockfile stays unchanged.
+
+Release containers are published to `ghcr.io/overad9658/northstar` for both amd64 and arm64,
+with tags such as `v1.2.3`, `1.2.3`, `1.2`, `1`, and `latest`. `latest` follows stable releases;
+the `main` and `sha-...` tags are available for development builds. Pin a full version in
+deployments when you want controlled upgrades.
+
+### One-time GitHub setup
+
+Enable **Settings → Actions → General → Workflow permissions → Allow GitHub Actions to create
+and approve pull requests**. The workflows use the built-in `GITHUB_TOKEN`; no release secret
+is needed. Repository or organization policies must allow the permissions declared in the
+workflows and writes to the GHCR package.
+
+PRs created by `GITHUB_TOKEN` do not automatically start PR workflows. If branch protection
+requires checks on the release PR, run the **Test** workflow manually on its
+`release-please--branches--main` branch before merging. Tests also gate release creation on
+`main`. See [Release Please token behavior](https://github.com/googleapis/release-please-action#other-actions-on-release-please-prs).
+
+Container publishing is called directly from the release workflow because tags created with
+`GITHUB_TOKEN` do not trigger another workflow. If image publishing fails after the GitHub
+release succeeds, run **Build and publish container** manually and enter the existing tag in
+**release-tag**. This rebuilds that tag's source without creating another release.
+
 ## Authentication and roles
 
 On the first visit, Northstar asks you to create the first admin account. Passwords are stored as
