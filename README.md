@@ -258,7 +258,8 @@ Use HTTPS when calling a remote Northstar host.
 
 ### Named API tokens
 
-Admins can also issue several named tokens, each with a `read` or `write` scope. A read token can
+Admins can also issue several named tokens, each with a `read` or `write` scope, under
+**Menu → API tokens** or through the API. A read token can
 call only `GET` on the Kanban and project endpoints and the status CSV, and sees projects the way a
 read-only user does. It cannot download backups, which include hidden projects and planning-room links.
 A write token behaves like the token above. Northstar stores only each token's SHA-256 hash and
