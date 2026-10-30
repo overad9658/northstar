@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="description" content="Create and revoke named Northstar API tokens.">
+    <title>API tokens — Northstar</title>
+    <link rel="icon" href="/favicon.svg">
+    <script src="/theme.js"></script>
+    <link rel="stylesheet" href="/styles.css">
+    <link rel="stylesheet" href="/tokens.css">
+    <script src="/tokens.js" type="module"></script>
+  </head>
+  <body>
+    <main class="app-shell team-settings-shell">
+      <header class="topbar">
+        <a class="brand" href="/" aria-label="Northstar home"><span class="brand-mark">N</span><span>Northstar</span></a>
+        <div class="topbar-actions"><button class="theme-toggle" data-theme-toggle type="button" aria-label="Switch to dark mode" aria-pressed="false"><span class="theme-icon-light" aria-hidden="true">☀</span><span class="theme-icon-dark" aria-hidden="true">☾</span></button><a class="button secondary button-link" href="/">← Priority matrix</a></div>
+      </header>
+
+      <section class="settings-intro">
+        <p class="eyebrow">Developer access</p>
+        <h1>API tokens</h1>
+        <p class="subtitle">Named tokens for agents and scripts. A read token can only read; a write token can change projects, cards and teams. <a href="/docs.html?doc=api#authentication">How to use a token</a></p>
+      </section>
+
+      <p class="form-error" id="tokens-denied" role="alert" hidden>Admin access is required to manage API tokens.</p>
+
+      <section class="team-settings-card" id="tokens-card" hidden>
+        <header class="settings-card-head">
+          <div><h2>Tokens</h2><p>Northstar stores only a hash of each token and shows it once, when it is created.</p></div>
+        </header>
+        <form class="add-team-form tokens-form" id="create-token-form">
+          <label class="field"><span>Name</span><input name="name" required maxlength="80" autocomplete="off" placeholder="Reporting agent"></label>
+          <label class="field"><span>Scope</span><select name="scope"><option value="read">Read</option><option value="write">Write</option></select></label>
+          <button class="button primary" type="submit">Create token</button>
+        </form>
+        <p class="form-error" id="create-token-error" role="alert"></p>
+
+        <div class="token-created" id="token-created" hidden>
+          <label class="field"><span id="token-created-label">New token</span><div class="link-field"><input id="token-created-value" readonly spellcheck="false"><button class="button secondary" id="copy-token" type="button">Copy</button></div></label>
+          <p class="backup-warning"><strong>Copy this token now.</strong> It cannot be shown again. <span id="copy-status" role="status" aria-live="polite"></span></p>
+          <button class="button secondary" id="dismiss-token" type="button">Done</button>
+        </div>
+
+        <div class="docs-table tokens-table">
+          <table>
+            <thead><tr><th scope="col">Name</th><th scope="col">Scope</th><th scope="col">Created by</th><th scope="col">Created</th><th scope="col">Last used</th><th scope="col">Status</th></tr></thead>
+            <tbody id="token-list"></tbody>
+          </table>
+        </div>
+        <p class="settings-empty-note" id="token-empty" hidden>No named tokens yet.</p>
+        <p class="form-error" id="token-list-error" role="alert"></p>
+      </section>
+      <div class="toast" id="toast"></div>
+    </main>
+  </body>
+</html>

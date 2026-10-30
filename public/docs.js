@@ -24,6 +24,21 @@ function renderToc(headings) {
   toc.replaceChildren(list);
 }
 
+// Admins get a link to the token page under the API tokens heading; the markdown itself stays app-agnostic.
+let currentUser;
+async function linkTokenAdmin() {
+  currentUser ??= await fetch('/api/auth/me', { credentials: 'same-origin' }).then((response) => (response.ok ? response.json() : null)).catch(() => null);
+  const heading = document.getElementById('api-tokens');
+  if (currentUser?.role !== 'admin' || !heading) return;
+  const note = document.createElement('p');
+  note.className = 'docs-app-link';
+  const link = document.createElement('a');
+  link.href = '/tokens.html';
+  link.textContent = 'Create and revoke named tokens in Northstar';
+  note.append(link);
+  heading.after(note);
+}
+
 async function load(name, { keepHash = false } = {}) {
   for (const tab of document.querySelectorAll('[data-doc]')) {
     const selected = tab.dataset.doc === name;
@@ -43,6 +58,7 @@ async function load(name, { keepHash = false } = {}) {
   }
   const { fragment, headings } = renderMarkdown(await response.text());
   body.replaceChildren(fragment);
+  if (name === 'api') await linkTokenAdmin();
   renderToc(headings);
   if (keepHash && location.hash) document.getElementById(decodeURIComponent(location.hash.slice(1)))?.scrollIntoView();
 }

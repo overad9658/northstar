@@ -101,6 +101,8 @@ curl -b cookies.txt -X POST http://localhost:3000/api/users \
 | `DELETE` | `/api/api-tokens/:id` | admin session | Revoke a named token. `204`. |
 | `GET` | `/api/token/self` | any token | The calling token's `{ name, scope, createdBy }`. `createdBy` is `null` for the **API access** / `API_TOKEN` token, or when the creating user was deleted. A session alone gets `401`. |
 
+Admins can also create and revoke named tokens in the app under **Menu → API tokens**.
+
 ```sh
 curl -b cookies.txt -X POST http://localhost:3000/api/api-tokens \
   -H "Content-Type: application/json" -d '{"name":"Reporting agent","scope":"read"}'

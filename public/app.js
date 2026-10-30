@@ -3,6 +3,7 @@ import {
 } from './browser-utils.js';
 import { layoutProjectDots } from './matrix-geometry.js';
 import { liveUpdates } from './live-updates.js';
+import { apiTokenDialogState } from './api-token-dialog.js';
 import {
   findFocusNowOccupant,
   projectLabel,
@@ -493,19 +494,26 @@ async function copyText(input, message) {
   toast(message);
 }
 
+function applyApiTokenState(state) {
+  for (const [name, visible] of Object.entries(state.buttons)) $(`#${name}-api-token`).hidden = !visible;
+  if (state.generateLabel) $('#generate-api-token').textContent = state.generateLabel;
+  $('#api-token-explanation').textContent = state.explanation;
+  $('#api-token-explanation').hidden = !state.explanation;
+  $('#api-token-result').hidden = !state.buttons.copy;
+}
+
 async function openApiTokenDialog() {
-  $('#api-token-result').hidden = true;
   $('#api-token-value').value = '';
   $('#api-token-error').textContent = '';
   $('#api-token-status').textContent = 'Checking token status…';
-  $('#generate-api-token').textContent = 'Generate token';
+  applyApiTokenState(apiTokenDialogState());
   apiTokenDialog.showModal();
   try {
     const status = await requestJson('/api/api-token', undefined, 'Token status could not be loaded.');
     $('#api-token-status').textContent = status.configured
       ? status.managed ? 'A UI-generated token is active.' : 'An environment-configured token is active.'
       : 'No API token is active.';
-    $('#generate-api-token').textContent = status.configured ? 'Replace token' : 'Generate token';
+    applyApiTokenState(apiTokenDialogState({ configured: status.configured }));
   } catch (error) { $('#api-token-error').textContent = error.message; }
 }
 
@@ -516,10 +524,10 @@ async function generateApiToken() {
   try {
     const result = await requestJson('/api/api-token', { method:'POST' }, 'The API token could not be generated.');
     $('#api-token-value').value = result.token;
-    $('#api-token-result').hidden = false;
-    $('#api-token-status').textContent = 'Your new token is active.';
-    button.textContent = 'Replace token';
-    requestAnimationFrame(() => $('#api-token-value').select());
+    const state = apiTokenDialogState({ created: true });
+    applyApiTokenState(state);
+    $('#api-token-status').textContent = state.status;
+    requestAnimationFrame(() => { $('#copy-api-token').focus(); $('#api-token-value').select(); });
   } catch (error) { $('#api-token-error').textContent = error.message; }
   finally { button.disabled = false; }
 }
@@ -708,6 +716,8 @@ $('#generate-api-token').addEventListener('click', generateApiToken);
 $('#copy-api-token').addEventListener('click', () => copyText($('#api-token-value'), 'API token copied'));
 $('#close-api-token').addEventListener('click', () => apiTokenDialog.close());
 $('#cancel-api-token').addEventListener('click', () => apiTokenDialog.close());
+$('#done-api-token').addEventListener('click', () => apiTokenDialog.close());
+apiTokenDialog.addEventListener('close', () => { $('#api-token-value').value = ''; });
 blockedNoteForm.addEventListener('submit', saveBlockedProject);
 $('#close-blocked-note').addEventListener('click', cancelBlockedSave);
 $('#cancel-blocked-note').addEventListener('click', cancelBlockedSave);

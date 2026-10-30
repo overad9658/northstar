@@ -1,0 +1,13 @@
+.tokens-form { grid-template-columns:minmax(180px,1fr) 160px auto; }
+.token-created { margin:16px 0; padding:16px; border:1px solid var(--line); border-radius:12px; display:grid; gap:10px; justify-items:start; }
+.token-created .field { width:100%; margin:0; }
+.tokens-table { margin-top:20px; overflow-x:auto; }
+.tokens-table table { width:100%; border-collapse:collapse; font-size:12px; }
+.tokens-table th, .tokens-table td { padding:9px 10px; border-bottom:1px solid var(--line); text-align:left; vertical-align:middle; }
+.tokens-table th { color:var(--muted); font-size:10px; letter-spacing:.06em; text-transform:uppercase; }
+.tokens-table tr.revoked td { color:var(--muted); }
+.token-scope { padding:2px 8px; border:1px solid var(--line); border-radius:999px; font-size:10px; font-weight:700; text-transform:uppercase; }
+.token-actions { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.settings-empty-note { margin:14px 0 0; color:var(--muted); font-size:12px; }
+@media (max-width:760px) { .tokens-form { grid-template-columns:1fr; } }
+.token-created[hidden], #tokens-card[hidden], #tokens-denied[hidden], .settings-empty-note[hidden] { display:none; }
