@@ -150,6 +150,20 @@ Container publishing is called directly from the release workflow because tags c
 release succeeds, run **Build and publish container** manually and enter the existing tag in
 **release-tag**. This rebuilds that tag's source without creating another release.
 
+### Dependabot PR manager
+
+The **Group and close Dependabot PRs** workflow combines open Node dependency updates into
+one PR on the first day of each month at 09:00 UTC. You can also run it manually. Review and
+merge the combined PR as usual. To close the individual Dependabot PRs, comment exactly
+`[dependabot-pr-manager] close prs` on the combined PR using an account with write access.
+
+Add a repository Actions secret named `DEPENDABOT_PR_MANAGER_TOKEN` with Contents and Pull
+requests read/write access. Use a GitHub App token or personal access token that can create
+PRs and trigger the normal PR checks; the built-in `GITHUB_TOKEN` does not trigger those
+checks on PRs it creates. The workflow uses pnpm and updates `package.json` and
+`pnpm-lock.yaml` in the combined PR. It processes existing Dependabot PRs; configure
+Dependabot separately if you want scheduled version update PRs.
+
 ## Authentication and roles
 
 On the first visit, Northstar asks you to create the first admin account. Passwords are stored as

@@ -1,0 +1,118 @@
+name: Group and close Dependabot PRs
+
+on:
+  schedule:
+    - cron: '0 9 1 * *'
+  workflow_dispatch:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+
+jobs:
+  group-dependabot-prs:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Check for manager token
+        env:
+          MANAGER_TOKEN: ${{ secrets.DEPENDABOT_PR_MANAGER_TOKEN }}
+        run: |
+          if [ -z "$MANAGER_TOKEN" ]; then
+            echo '::error::Set DEPENDABOT_PR_MANAGER_TOKEN to a token with Contents and Pull requests read/write access.'
+            exit 1
+          fi
+
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.DEPENDABOT_PR_MANAGER_TOKEN }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.19.0
+
+      - name: Set up Git identity
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+      - name: Create combined Dependabot PR
+        env:
+          MANAGER_TOKEN: ${{ secrets.DEPENDABOT_PR_MANAGER_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+          OWNER: ${{ github.repository_owner }}
+          REPO_NAME: ${{ github.event.repository.name }}
+        run: |
+          pnpm dlx --package @openish-u/dependabot-pr-manager@5.0.1 merge-dependabot-prs \
+            --repoUrl="https://github.com/$REPOSITORY.git" \
+            --combinedBranch=ci/combined-dependabot-updates \
+            --mainBranch=main \
+            --githubToken="$MANAGER_TOKEN" \
+            --repoOwner="$OWNER" \
+            --repoName="$REPO_NAME" \
+            --installDepsCommand='pnpm install --no-frozen-lockfile' \
+            --filesToCommit='package.json pnpm-lock.yaml'
+
+  close-dependabot-prs:
+    if: github.event_name == 'issue_comment' && github.event.issue.pull_request && github.event.comment.body == '[dependabot-pr-manager] close prs'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Verify comment and combined PR
+        id: verify
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const permission = await github.rest.repos.getCollaboratorPermissionLevel({
+              owner, repo, username: context.payload.comment.user.login
+            });
+            if (!['admin', 'maintain', 'write'].includes(permission.data.permission)) {
+              core.setFailed('Only collaborators with write access can close Dependabot PRs.');
+              return;
+            }
+            const { data: pull } = await github.rest.pulls.get({
+              owner, repo, pull_number: context.issue.number
+            });
+            if (!pull.merged ||
+                pull.head.ref !== 'ci/combined-dependabot-updates' ||
+                pull.head.repo.full_name !== context.payload.repository.full_name ||
+                pull.base.ref !== 'main') {
+              core.setFailed('Merge the combined Dependabot PR before using the close command.');
+            }
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.19.0
+
+      - name: Close individual Dependabot PRs
+        env:
+          MANAGER_TOKEN: ${{ secrets.DEPENDABOT_PR_MANAGER_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+          REPO_NAME: ${{ github.event.repository.name }}
+        run: |
+          if [ -z "$MANAGER_TOKEN" ]; then
+            echo '::error::Set DEPENDABOT_PR_MANAGER_TOKEN before closing Dependabot PRs.'
+            exit 1
+          fi
+          pnpm dlx --package @openish-u/dependabot-pr-manager@5.0.1 close-dependabot-prs \
+            --githubToken="$MANAGER_TOKEN" \
+            --repoOwner="$OWNER" \
+            --repoName="$REPO_NAME"
