@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="description" content="Northstar HTTP API and MCP server reference.">
+    <title>Docs — Northstar</title>
+    <link rel="icon" href="/favicon.svg">
+    <script src="/theme.js"></script>
+    <link rel="stylesheet" href="/styles.css">
+    <link rel="stylesheet" href="/docs.css">
+    <script src="/docs.js" type="module"></script>
+  </head>
+  <body>
+    <main class="app-shell team-settings-shell">
+      <header class="topbar">
+        <a class="brand" href="/" aria-label="Northstar home"><span class="brand-mark">N</span><span>Northstar</span></a>
+        <div class="topbar-actions"><button class="theme-toggle" data-theme-toggle type="button" aria-label="Switch to dark mode" aria-pressed="false"><span class="theme-icon-light" aria-hidden="true">☀</span><span class="theme-icon-dark" aria-hidden="true">☾</span></button><a class="button secondary button-link" href="/">← Priority matrix</a></div>
+      </header>
+
+      <section class="settings-intro">
+        <p class="eyebrow">Reference</p>
+        <h1>Docs</h1>
+        <div class="tabs docs-tabs" role="tablist" aria-label="Documents">
+          <button class="tab" role="tab" id="tab-api" data-doc="api" aria-controls="docs-body" type="button">API</button>
+          <button class="tab" role="tab" id="tab-mcp" data-doc="mcp" aria-controls="docs-body" type="button">MCP</button>
+        </div>
+      </section>
+
+      <section class="team-settings-card docs-layout">
+        <nav class="docs-toc" id="docs-toc" aria-label="On this page"></nav>
+        <article class="docs-body" id="docs-body" role="tabpanel" aria-live="polite"></article>
+      </section>
+    </main>
+  </body>
+</html>

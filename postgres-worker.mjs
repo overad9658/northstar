@@ -12,7 +12,7 @@ try {
   await client.connect();
 } catch (error) { startupError = error; }
 
-port.on('message', async ({ sql, params, close }) => {
+port.on('message', async ({ id, sql, params, close }) => {
   let response;
   try {
     if (close) {
@@ -27,7 +27,7 @@ port.on('message', async ({ sql, params, close }) => {
   } catch (error) {
     response = { error: { code: error.code, message: error.code === '23505' ? `UNIQUE constraint: ${error.message}` : error.message } };
   }
-  port.postMessage(response);
-  Atomics.store(signal, 0, 1);
+  port.postMessage({ id, ...response });
+  Atomics.add(signal, 0, 1);
   Atomics.notify(signal, 0);
 });

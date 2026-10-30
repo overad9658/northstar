@@ -3,11 +3,11 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { startServer, stopServer } from './support/server-fixture.mjs';
+import { freePort, startServer, stopServer } from './support/server-fixture.mjs';
 
 test('remote Kanban API uses revocable bearer tokens without broadening admin access', async (t) => {
   const dataDir = await mkdtemp(join(tmpdir(), 'northstar-kanban-api-'));
-  const port = 37000 + (process.pid % 1000);
+  const port = await freePort();
   const child = await startServer(dataDir, port, { AUTH_DISABLED: 'false', API_TOKEN: '' });
   t.after(async () => { await stopServer(child); await rm(dataDir, { recursive: true, force: true }); });
   const base = `http://127.0.0.1:${port}`;
@@ -31,8 +31,9 @@ test('remote Kanban API uses revocable bearer tokens without broadening admin ac
   assert.equal((await send('/api/kanban', 'GET', undefined, { authorization: 'Bearer wrong' })).status, 401);
   assert.equal((await send('/api/kanban', 'GET', undefined, bearer)).status, 200);
   assert.equal((await send('/api/kanban/projects', 'GET', undefined, bearer).then((response) => response.json()))[0].id, project.id);
-  assert.equal((await send('/api/projects', 'GET', undefined, bearer)).status, 401);
-  assert.equal((await send('/api/backup', 'GET', undefined, bearer)).status, 401);
+  assert.equal((await send('/api/projects', 'GET', undefined, bearer)).status, 200);
+  assert.equal((await send('/api/backup', 'GET', undefined, bearer)).status, 200);
+  assert.equal((await send('/api/backup', 'POST', {}, bearer)).status, 401);
   assert.equal((await send('/api/api-token', 'GET', undefined, bearer)).status, 401);
 
   const columnResponse = await send('/api/kanban/columns', 'POST', { name: 'To do' }, bearer);

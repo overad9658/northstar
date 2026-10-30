@@ -4,11 +4,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
-import { startServer, stopServer } from './support/server-fixture.mjs';
+import { freePort, startServer, stopServer } from './support/server-fixture.mjs';
 
 test('complete portfolio workflow remains consistent across persistence and restore', async (t) => {
   const dataDir = await mkdtemp(join(tmpdir(), 'northstar-test-'));
-  const port = 31000 + (process.pid % 1000);
+  const port = await freePort();
   const legacyDb = new DatabaseSync(join(dataDir, 'northstar.db'));
   legacyDb.exec(`
     CREATE TABLE projects (

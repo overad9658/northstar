@@ -30,6 +30,19 @@
 .kanban-tags span { max-width:100%; padding:4px 7px; border-radius:999px; color:var(--green); background:var(--green-2); font-size:10px; font-weight:700; overflow-wrap:anywhere; }
 .kanban-note-count { margin-top:9px; color:var(--muted); display:block; font-size:10px; }
 .kanban-project-tag,.kanban-general-tag { width:max-content; max-width:100%; margin-top:11px; padding:5px 7px; border-radius:6px; color:var(--green); background:var(--green-2); display:block; font-size:10px; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.kanban-assignee { width:max-content; max-width:100%; margin-top:9px; padding:4px 8px; border-radius:999px; color:var(--ink); border:1px solid var(--line); display:block; font-size:10px; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.kanban-next-step { margin:9px 0 0; font-size:11px; color:var(--ink); overflow-wrap:anywhere; }
+.kanban-next-step strong { margin-right:4px; color:var(--muted); font-weight:700; }
+.kanban-decision-tag { width:max-content; max-width:100%; margin-top:9px; padding:4px 8px; border-radius:6px; color:var(--coral); border:1px solid var(--coral); display:block; font-size:10px; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.kanban-decision-tag.decided { color:var(--green); border-color:var(--green); }
+.kanban-card.archived { opacity:.62; border-style:dashed; }
+.kanban-archived-tag { width:max-content; margin-bottom:7px; padding:3px 7px; border-radius:6px; color:var(--muted); border:1px solid var(--line); display:block; font-size:10px; font-weight:700; }
+.kanban-archived-toggle { display:flex; align-self:end; align-items:center; gap:7px; min-height:43px; font-size:13px; font-weight:700; white-space:nowrap; }
+.kanban-decision { margin:0 0 14px; padding:10px 12px 0; border:1px solid var(--line); border-radius:9px; display:grid; grid-template-columns:1fr 1fr; gap:0 10px; }
+.kanban-decision legend { padding:0 4px; font-size:11px; font-weight:700; }
+.kanban-decision .wide { grid-column:1 / -1; }
+.kanban-card-link { width:max-content; margin-top:9px; color:var(--green); display:block; font-size:11px; font-weight:700; text-decoration:none; }
+.kanban-card-link:hover,.kanban-card-link:focus-visible { text-decoration:underline; }
 .kanban-project-tag span { margin-left:5px; color:var(--muted); font-weight:500; }
 .kanban-general-tag { color:var(--muted); background:var(--paper); }
 .kanban-add-card { width:100%; padding:10px; border:1px dashed var(--line); border-radius:8px; color:var(--green); background:transparent; text-align:left; font-size:11px; font-weight:700; }

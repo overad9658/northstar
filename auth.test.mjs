@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { startServer, stopServer } from './support/server-fixture.mjs';
+import { freePort, startServer, stopServer } from './support/server-fixture.mjs';
 
 function sessionCookie(response) { return response.headers.get('set-cookie').split(';', 1)[0]; }
 function jsonRequest(url, body, cookie, method = 'POST') {
@@ -12,7 +12,7 @@ function jsonRequest(url, body, cookie, method = 'POST') {
 
 test('authentication enforces roles and hides selected projects from read-only users', async () => {
   const dataDir = await mkdtemp(join(tmpdir(), 'northstar-auth-'));
-  const port = 34000 + (process.pid % 1000);
+  const port = await freePort();
   const server = await startServer(dataDir, port, { AUTH_DISABLED:'false' });
   const base = `http://127.0.0.1:${port}`;
   try {
@@ -59,7 +59,7 @@ test('authentication enforces roles and hides selected projects from read-only u
 
 test('signup setting persists, rejects disabled signup and never grants admin access', async () => {
   const dataDir = await mkdtemp(join(tmpdir(), 'northstar-signup-'));
-  const port = 37000 + (process.pid % 1000), base = `http://127.0.0.1:${port}`;
+  const port = await freePort(), base = `http://127.0.0.1:${port}`;
   const env = { AUTH_DISABLED: 'false', SIGNUP_ALLOWED: 'false', SSO_PROVIDERS: '[]', SSO_CONFIG_FILE: '', PUBLIC_URL: '' };
   let server = await startServer(dataDir, port, env);
   const send = (path, body, cookie, method) => jsonRequest(`${base}${path}`, body, cookie, method);

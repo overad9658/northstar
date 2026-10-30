@@ -13,7 +13,7 @@ import { safeReturnTo as browserReturnTo } from './public/login-utils.js';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { startServer, stopServer } from './support/server-fixture.mjs';
+import { freePort, startServer, stopServer } from './support/server-fixture.mjs';
 
 // Public test credentials, never used by the application or a real provider.
 const privateKey = readFileSync(new URL('./support/fixtures/sso-test-key.pem', import.meta.url), 'utf8');
@@ -60,7 +60,7 @@ test('return destinations reject external URLs and backslash redirects on server
 
 test('SSO HTTP routes expose safe provider details, metadata and redirects alongside local login', async () => {
   const dataDir = await mkdtemp(join(tmpdir(), 'northstar-sso-'));
-  const port = 35000 + (process.pid % 1000);
+  const port = await freePort();
   const server = await startServer(dataDir, port, {
     AUTH_DISABLED: 'false', PUBLIC_URL: 'https://app.example', SSO_CONFIG_FILE: '',
     SSO_PROVIDERS: JSON.stringify([{ id: 'saml', name: 'Company sign-in', type: 'saml', entityId: 'northstar-sp', idpIssuer: 'https://idp.example', entryPoint: 'https://idp.example/sso', idpCert: certificate }]),

@@ -45,7 +45,7 @@ export function createAuthService(db, { disabled = process.env.AUTH_DISABLED ===
 
   function usersCount() { return db.prepare('SELECT COUNT(*) AS count FROM users').get().count; }
   function userForRequest(req) {
-    if (disabled) return { id: 0, username: 'development', role: 'admin', createdAt: null };
+    if (disabled) return { id: 0, username: 'development', role: 'admin', createdAt: null, teamIds: [] };
     const token = cookieValue(req, 'northstar_session');
     if (!token) return null;
     const row = db.prepare(`

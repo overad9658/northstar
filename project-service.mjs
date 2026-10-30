@@ -16,6 +16,14 @@ const selectColumns = `
 `;
 
 const BULK_LIMIT = 100;
+const upsertKeys = { projectId: 'project_id', externalUrl: 'external_url' };
+
+function upsertKeyValue(key, value) {
+  if (!upsertKeys[key]) throw new ProjectError(400, 'key must be projectId or externalUrl.');
+  const text = String(value ?? '').trim().slice(0, key === 'projectId' ? 16 : 2048);
+  if (!text) throw new ProjectError(400, `${key} must not be empty.`);
+  return text;
+}
 
 export class ProjectError extends Error {
   constructor(status, message) {
@@ -87,6 +95,18 @@ export function createProjectService(db) {
     return db.prepare(`SELECT ${selectColumns} FROM projects WHERE id = ?`).get(result.lastInsertRowid);
   }
 
+  // Records status, archive, team and capacity changes for the activity feed.
+  function recordChanges(current, next, actor = '') {
+    const insert = db.prepare('INSERT INTO project_changes (project_id, field, from_value, to_value, note, actor) VALUES (?, ?, ?, ?, ?, ?)');
+    const record = (field, from, to, note = '') => insert.run(current.id, field, String(from), String(to), note, String(actor || '').slice(0, 80));
+    if (current.status !== next.status) record('status', current.status, next.status, next.status === 'Blocked' ? next.blockedNote : '');
+    const wasArchived = Number(Boolean(current.archived));
+    const isArchived = Number(Boolean(next.archived));
+    if (wasArchived !== isArchived) record('archived', wasArchived, isArchived, isArchived ? next.archiveNote : next.restoreNote);
+    if (current.team !== next.team) record('team', current.team, next.team);
+    if (Number(current.capacity) !== Number(next.capacity)) record('capacity', current.capacity, next.capacity);
+  }
+
   function deleteProject(id) {
     if (!db.prepare('DELETE FROM projects WHERE id = ?').run(id).changes) throw new ProjectError(404, 'Project not found.');
   }
@@ -111,8 +131,26 @@ export function createProjectService(db) {
       return capacity();
     },
 
-    list({ includeHidden = true } = {}) {
-      return db.prepare(`SELECT ${selectColumns} FROM projects ${includeHidden ? '' : 'WHERE hidden_from_read_only = 0'} ORDER BY score DESC, updated_at DESC`).all();
+    list({ includeHidden = true, projectId, externalUrl } = {}) {
+      const conditions = includeHidden ? [] : ['hidden_from_read_only = 0'];
+      const params = [];
+      if (projectId !== undefined) { conditions.push('project_id = ?'); params.push(upsertKeyValue('projectId', projectId)); }
+      if (externalUrl !== undefined) { conditions.push('external_url = ?'); params.push(upsertKeyValue('externalUrl', externalUrl)); }
+      const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+      return db.prepare(`SELECT ${selectColumns} FROM projects ${where} ORDER BY score DESC, updated_at DESC`).all(...params);
+    },
+
+    // Creates the project, or updates the one project whose projectId or externalUrl matches; repeating a request changes nothing.
+    upsert(key, input, options = {}) {
+      if (!input || typeof input !== 'object' || Array.isArray(input)) throw new ProjectError(400, 'A project object is required.');
+      const value = upsertKeyValue(key, input[key]);
+      // Lookup and write share one transaction so concurrent upserts of a new key create one project.
+      return transaction(db, () => {
+        const matches = db.prepare(`SELECT id FROM projects WHERE ${upsertKeys[key]} = ?`).all(value);
+        if (matches.length > 1) throw new ProjectError(409, `More than one project has this ${key}.`);
+        if (matches.length) return { created: false, project: this.update(matches[0].id, input, options) };
+        return { created: true, project: create(input) };
+      }, { lockKey: `projects:${key}:${value}` });
     },
 
     create,
@@ -125,7 +163,7 @@ export function createProjectService(db) {
       return transaction(db, () => projects.map(create));
     },
 
-    update(id, input) {
+    update(id, input, { actor } = {}) {
       const current = db.prepare('SELECT * FROM projects WHERE id = ?').get(id);
       if (!current) throw new ProjectError(404, 'Project not found.');
       const project = { ...current, ...validateInput(input, true) };
@@ -144,6 +182,7 @@ export function createProjectService(db) {
       transaction(db, () => {
         db.prepare('UPDATE projects SET project_id = ?, external_url = ?, name = ?, description = ?, retrospective = ?, blocked_note = ?, archive_note = ?, restore_note = ?, team = ?, status = ?, schedule_stage = ?, capacity = ?, archived = ?, hidden_from_read_only = ?, impact = ?, urgency = ?, confidence = ?, effort = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
           .run(project.projectId ?? project.project_id ?? '', project.externalUrl ?? project.external_url ?? '', project.name, project.description, project.retrospective, project.blockedNote, project.archiveNote, project.restoreNote, project.team, project.status, project.scheduleStage ?? project.schedule_stage ?? 'To plan', project.capacity, project.archived, project.hiddenFromReadOnly, project.impact, project.urgency, project.confidence, project.effort, id);
+        recordChanges(current, project, actor);
         if (current.team.toLocaleLowerCase() !== project.team.toLocaleLowerCase()) {
           const destinationTeam = db.prepare('SELECT id FROM teams WHERE name = ? COLLATE NOCASE').get(project.team);
           const cards = db.prepare('SELECT c.id, k.name FROM kanban_cards c JOIN kanban_columns k ON k.id = c.column_id WHERE c.project_id = ?').all(id);
@@ -164,13 +203,14 @@ export function createProjectService(db) {
       return db.prepare(`SELECT ${selectColumns} FROM projects WHERE id = ?`).get(id);
     },
 
-    bulkArchive(projectIds) {
+    bulkArchive(projectIds, { actor } = {}) {
       const ids = validateProjectIds(projectIds);
       return transaction(db, () => {
         for (const id of ids) {
-          if (!db.prepare('UPDATE projects SET archived = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(id).changes) {
-            throw new ProjectError(404, 'Project not found.');
-          }
+          const current = db.prepare('SELECT * FROM projects WHERE id = ?').get(id);
+          if (!current) throw new ProjectError(404, 'Project not found.');
+          db.prepare('UPDATE projects SET archived = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(id);
+          recordChanges(current, { ...current, archived: 1, archiveNote: current.archive_note }, actor);
         }
         const select = db.prepare(`SELECT ${selectColumns} FROM projects WHERE id = ?`);
         return ids.map((id) => select.get(id));
@@ -198,12 +238,12 @@ export function createProjectService(db) {
       return Boolean(db.prepare('SELECT hidden_from_read_only AS hidden FROM projects WHERE id = ?').get(id)?.hidden);
     },
 
-    statusExportRows() {
+    statusExportRows({ includeHidden = true } = {}) {
       return db.prepare(`
         SELECT project_id AS projectId, name, team, status, blocked_note AS blockedNote, capacity, impact, urgency,
           confidence, effort, external_url AS externalUrl, description, updated_at AS updatedAt
         FROM projects
-        WHERE archived = 0 AND status IN ('Active', 'Blocked')
+        WHERE archived = 0 AND status IN ('Active', 'Blocked') ${includeHidden ? '' : 'AND hidden_from_read_only = 0'}
         ORDER BY CASE status WHEN 'Active' THEN 0 ELSE 1 END, team, name
       `).all();
     },

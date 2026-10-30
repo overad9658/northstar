@@ -198,6 +198,19 @@ Docker is the only prerequisite. The first run downloads Trivy and its vulnerabi
 Set `IMAGE_REF` to override the tag assigned to the application image, or set `TRIVY_IMAGE` to use
 a different pinned Trivy container version.
 
+Northstar's pages send a `Content-Security-Policy` that allows only its own scripts, styles and
+images, with no inline scripts or style attributes. Failed sign-ins are limited per address and
+username (`LOGIN_FAILURES_PER_MINUTE`, default `5`) and per address (`LOGIN_IP_FAILURES_PER_MINUTE`,
+default `20`); limited requests get `429` with `Retry-After`.
+
+## HTTP API
+
+Every endpoint, its authentication and examples are in [docs/api.md](docs/api.md). Signed-in users can also
+read it, and the [MCP server guide](mcp/README.md), under **Menu → Docs**; the page renders these
+same files.
+Repeated unknown API tokens from one address get `429` with `Retry-After`; set the limit with
+`TOKEN_AUTH_FAILURES_PER_MINUTE` (default `10`).
+
 ## Bulk project API
 
 Generate a token from **Menu → API access** to enable the token-protected bulk project endpoints.
@@ -227,16 +240,78 @@ curl -X POST http://localhost:3000/api/projects/bulk/delete \
 ```
 
 The add response returns `{ count, projects }`; archive returns the same shape with the updated
-projects; delete returns `{ count, projectIds }`. If `API_TOKEN` is unset, these endpoints return
-`503` while the existing browser-facing API remains available.
+projects; delete returns `{ count, projectIds }`. If no write token exists (no `API_TOKEN`, UI-generated
+token or named write token), these endpoints return `503` while the existing browser-facing API remains available.
 
 ## Kanban API for agents and remote clients
 
 The Kanban API accepts the same bearer token from **Menu → API access** or `API_TOKEN`. Use it in
 `Authorization: Bearer <token>` on each request. A valid token grants Kanban read and write access
 without a browser session; browser sessions retain their normal admin and read-only roles. Token
-rotation revokes access immediately. The token does not grant access to other admin endpoints.
+rotation revokes access immediately. The same token also grants project read and write access
+(`GET`/`POST /api/projects`, `PUT`/`DELETE /api/projects/:id`, `GET /api/projects/:id/moves`) and
+manages teams and capacity (`GET`/`POST /api/teams`, `PUT`/`DELETE /api/teams/:id`,
+`GET`/`PUT /api/capacity`), and can download a backup (`GET /api/backup`) or the status CSV
+(`GET /api/status-export`). It does not grant access to other admin endpoints such as users,
+planning rooms, backup restore, or SSO.
 Use HTTPS when calling a remote Northstar host.
+
+### Named API tokens
+
+Admins can also issue several named tokens, each with a `read` or `write` scope. A read token can
+call only `GET` on the Kanban and project endpoints and the status CSV, and sees projects the way a
+read-only user does. It cannot download backups, which include hidden projects and planning-room links.
+A write token behaves like the token above. Northstar stores only each token's SHA-256 hash and
+records when it was last used. Tokens are managed with an admin browser session, never with a token:
+
+```sh
+curl -X POST http://localhost:3000/api/api-tokens -b "$SESSION_COOKIE" \
+  -H "Content-Type: application/json" -d '{"name":"Reporting agent","scope":"read"}'
+curl http://localhost:3000/api/api-tokens -b "$SESSION_COOKIE"
+curl -X DELETE http://localhost:3000/api/api-tokens/1 -b "$SESSION_COOKIE"
+```
+
+The create response includes the token once. The list returns each token's `id`, `name`, `scope`,
+`createdAt`, `lastUsedAt` and `revokedAt`, never the token itself. Revoking a token takes effect
+immediately. The token from **Menu → API access** and `API_TOKEN` keep working as write tokens.
+
+
+### Lookup and upsert by external key
+
+Clients that sync from another tracker can find and update records by their own key instead of
+Northstar's numeric id. `GET /api/projects?projectId=OPS-12` and `GET /api/projects?externalUrl=<url>`
+return the matching projects. `GET /api/kanban/cards?externalUrl=<url>` and
+`GET /api/kanban/cards?projectId=<id>` return the matching cards. Cards also take an optional `key` (up to 120
+characters, unique when set) chosen by the client, so a card can be found with `GET /api/kanban/cards?key=<key>`
+even when it has no link. Sending an empty `key` clears it.
+
+Cards can be archived with `PUT /api/kanban/cards/:id` and `{"archived": true}`, and restored with
+`false`. Each card has `archived` and `archivedAt`. Archived cards are left off `GET /api/kanban` and
+`GET /api/kanban/cards` unless you add `?archived=include` (all cards) or `?archived=only`; on the board,
+**Show archived** brings them back. Cards also take an optional `source` (up to 80 characters, for
+example `ipm-sync`), and `GET /api/kanban/cards` filters by `?tag=` and `?source=`.
+`GET /api/kanban/cards?decision=open` returns cards with a decision that has no `decidedOption` yet.
+
+A card's `nextStep` is free text (up to 1000 characters): the exact next action or command.
+Its `decision` is `null` or `{ "options": [...], "recommendation": "...", "confidence": 0-100,
+"decidedOption": "...", "decidedAt": "ISO time" }`. There are 1–10 distinct options, and
+`recommendation` and `decidedOption` must each be one of them. `decidedAt` is set when
+`decidedOption` is first set (or taken from the request). Writing `decision` replaces the whole
+object, and `null` clears it. Both fields work through create, update and
+`PUT /api/kanban/cards/upsert`.
+
+`PUT /api/projects/upsert?key=projectId` (or `key=externalUrl`) and `PUT /api/kanban/cards/upsert`
+(keyed by `externalUrl` by default, or `?key=key` for the card's own key) update the one record with that
+key, or create it if none exists. The
+response is `{ created, project }` or `{ created, card }`, with `201` when created and `200` when
+updated, so repeating a request is safe. An update changes only the fields sent; a create needs the
+same fields as `POST`. If more than one record already has the key, the request returns `409`.
+
+```sh
+curl -X PUT "http://localhost:3000/api/projects/upsert?key=projectId" \
+  -H "Authorization: Bearer $API_TOKEN" -H "Content-Type: application/json" \
+  -d '{"projectId":"OPS-12","name":"API migration","impact":9,"urgency":8,"confidence":7,"effort":6}'
+```
 
 | Method | Path | Purpose |
 | --- | --- | --- |
@@ -244,7 +319,7 @@ Use HTTPS when calling a remote Northstar host.
 | `GET` | `/api/kanban/projects` | List available project IDs and names for card links. |
 | `POST` | `/api/kanban/columns` | Create a column with `{ "name": "To do" }`. |
 | `PUT`, `DELETE` | `/api/kanban/columns/:id` | Rename or delete a column. Deleting also deletes its cards. |
-| `POST` | `/api/kanban/cards` | Create a card with `columnId` and `title`; `description`, `projectId`, and `tags` are optional. |
+| `POST` | `/api/kanban/cards` | Create a card with `columnId` and `title`; `description`, `assignee`, `externalUrl` (HTTP or HTTPS), `nextStep`, `decision`, `projectId`, and `tags` are optional. |
 | `GET`, `PUT`, `DELETE` | `/api/kanban/cards/:id` | Read, partially update, or delete a card. `PUT` can move a card with `{ "columnId": 2 }`. |
 | `GET`, `POST` | `/api/kanban/cards/:id/notes` | List notes or add one with `{ "body": "..." }`. |
 | `DELETE` | `/api/kanban/cards/:id/notes/:noteId` | Delete one note. |
@@ -269,6 +344,56 @@ curl -X PUT https://northstar.example.com/api/kanban/cards/7 \
   -H "Content-Type: application/json" \
   -d '{"columnId":2}'
 ```
+
+### Activity feed
+
+`GET /api/activity` returns recent events, newest first, as `{ items }`. It accepts a session or any
+API token, read or write. Each item has a stable `id`, a `type` and an ISO 8601 `at`, plus the
+fields for its type:
+
+| `type` | Fields |
+| --- | --- |
+| `project.created` | `projectId`, `projectCode`, `projectName` |
+| `project.moved` | project fields, `from` and `to` (`impact`, `urgency`), `source`, `comment` |
+| `planning.decided` | project fields, final `scores`, `comment` |
+| `card.created`, `card.moved` | `cardId`, `title`, `projectId`, `columnId`, `columnName` |
+| `card.note` | `cardId`, `title`, `projectId`, `body` |
+| `project.status` | project fields, `from`, `to`, `note` (the blocked note when `to` is `Blocked`), `actor` |
+| `project.archived`, `project.restored` | project fields, `note` (the archive or restore note), `actor` |
+| `project.team`, `project.capacity` | project fields, `from`, `to`, `actor` |
+| `card.updated` | card fields, `fields` (which of `title`, `description`, `nextStep`, `externalUrl` changed), `actor` |
+| `card.decided` | card fields, `option` (the decided option), `by` and `actor` (who decided) |
+| `card.assigned` | card fields, `from`, `to` (assignee before and after; `''` is unassigned), `actor` |
+| `card.archived`, `card.restored` | card fields, `actor` |
+
+Status, archive, team and capacity events for projects, and update, decision, assignee and archive
+events for cards, are recorded from the time this history was added; earlier changes are not
+backfilled. `actor` is the username, or the API token's name.
+
+`limit` (1–500, default 100) caps the number of items. `since` (an ISO 8601 timestamp) returns only
+events at or after that time, compared to the whole second; to poll, pass the newest `at` you have seen and skip items whose `id`
+you already hold. Read-only callers do not see events for projects hidden from read-only users.
+
+### Live updates
+
+The matrix, kanban and teams pages update by themselves when data changes in another tab, from a
+teammate, or through the API. `GET /api/events` is a server-sent event stream (browser session
+or any API token). After each committed write it sends `{ "version": N, "kinds": [...] }`, where
+the kinds are those whose content changed (`projects`, `kanban`, `teams`). Every event has an `id`
+for `Last-Event-ID`, and the stream sends a heartbeat every 25 seconds. Read-only viewers are
+compared against what they can see, so a change to a hidden project sends them nothing. A page
+waits to refresh while a dialog is open, a form field has focus or a drag is in progress. If the
+stream is unavailable, pages poll `GET /api/version` every 10 seconds while the tab is visible.
+
+The event emitter is in-process. Several Northstar servers sharing one PostgreSQL database would
+need PostgreSQL `LISTEN`/`NOTIFY` to share events.
+
+## MCP server for agents
+
+`mcp/` holds a stdio [MCP](https://modelcontextprotocol.io) server, packaged separately, that wraps
+this API for agents: reading projects, cards, teams and activity, and (with a write token) upserting
+projects and cards, moving projects, adding notes, deciding cards and setting team capacity. See
+[`mcp/README.md`](mcp/README.md).
 
 ## Code structure
 
