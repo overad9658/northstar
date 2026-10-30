@@ -15,7 +15,7 @@
     "sbom": "sh support/generate-sbom.sh"
   },
   "dependencies": {
-    "@node-saml/node-saml": "^5.1.0",
+    "@node-saml/node-saml": "^5.2.0",
     "openid-client": "^6.8.8",
     "pg": "^8.23.1"
   },
