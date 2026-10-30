@@ -1,4 +1,5 @@
 import { escapeHtml, requestJson, showToast } from './browser-utils.js';
+import { liveUpdates } from './live-updates.js';
 
 const list = document.querySelector('#team-settings-list');
 const addForm = document.querySelector('#add-team-form');
@@ -36,6 +37,7 @@ async function load() {
     users = currentUser.role === 'admin' || currentUser.role === 'team_manager' ? await requestJson('/api/users') : [];
     membersByTeam = new Map(await Promise.all(teams.map(async (team) => [team.id, await teamRequest(`/${team.id}/members`)])));
     render();
+    liveUpdates(['teams'], async () => { teams = await teamRequest(); render(); });
   } catch (error) {
     errorMessage.textContent = error.message;
   }

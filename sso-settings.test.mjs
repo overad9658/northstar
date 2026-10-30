@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { openDatabase } from './database.mjs';
 import { createSsoSettings } from './sso-settings.mjs';
-import { startServer, stopServer } from './support/server-fixture.mjs';
+import { freePort, startServer, stopServer } from './support/server-fixture.mjs';
 
 const cert = readFileSync(new URL('./support/fixtures/sso-test-cert.pem', import.meta.url), 'utf8');
 const key = readFileSync(new URL('./support/fixtures/sso-test-key.pem', import.meta.url), 'utf8');
@@ -46,7 +46,7 @@ test('SSO settings redact secrets, preserve them on edits and reject invalid con
 
 test('hamburger SSO settings require admin access and update sign-in options immediately and across restart', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'northstar-settings-http-'));
-  const port = 36000 + (process.pid % 1000), base = `http://127.0.0.1:${port}`;
+  const port = await freePort(), base = `http://127.0.0.1:${port}`;
   const env = { AUTH_DISABLED: 'false', PUBLIC_URL: '', SSO_CONFIG_FILE: '', SSO_PROVIDERS: '[]' };
   let server = await startServer(directory, port, env);
   const send = (path, body, cookie, method = 'POST') => fetch(`${base}${path}`, { method, headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, body: JSON.stringify(body) });

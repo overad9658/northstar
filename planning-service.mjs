@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomInt } from 'node:crypto';
 import { transaction } from './database.mjs';
 import { isFocusProject, validateScores } from './project-domain.mjs';
 
@@ -13,9 +13,9 @@ export class PlanningError extends Error {
   }
 }
 
-function randomName() {
-  const bytes = randomBytes(3);
-  return `${adjectives[bytes[0] % adjectives.length]} ${nouns[bytes[1] % nouns.length]} ${10 + (bytes[2] % 90)}`;
+// randomInt draws uniformly; a byte modulo the list length would favor some words.
+export function randomName() {
+  return `${adjectives[randomInt(adjectives.length)]} ${nouns[randomInt(nouns.length)]} ${randomInt(10, 100)}`;
 }
 
 function requireLeader(session, leaderKey) {

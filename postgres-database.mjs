@@ -1,6 +1,6 @@
 import { MessageChannel, receiveMessageOnPort, Worker } from 'node:worker_threads';
 
-const identityTables = ['projects', 'teams', 'users', 'project_moves', 'planning_sessions', 'planning_votes', 'kanban_columns', 'kanban_cards', 'kanban_card_notes', 'kanban_card_history'];
+const identityTables = ['projects', 'teams', 'users', 'project_moves', 'planning_sessions', 'planning_votes', 'kanban_columns', 'kanban_cards', 'kanban_card_notes', 'kanban_card_history', 'api_tokens', 'project_changes', 'card_changes'];
 const timestampSql = "to_char(clock_timestamp() AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')";
 
 // Translate the application's fixed SQL statements; values always remain bound parameters.
@@ -32,20 +32,44 @@ export function openPostgresDatabase(connectionString) {
     workerData: { connectionString, port: port2, signal }, transferList: [port2],
   });
   let closed = false;
+  let sequence = 0;
   worker.on('error', () => { closed = true; });
+
+  function takeResponse(id) {
+    for (let received = receiveMessageOnPort(port1); received; received = receiveMessageOnPort(port1)) {
+      if (received.message.id === id) return received.message;
+    }
+    return null;
+  }
+
+  function awaitResponse(id, replies, deadline) {
+    for (;;) {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) return null;
+      const current = Atomics.load(signal, 0);
+      if (current === replies) {
+        Atomics.wait(signal, 0, replies, remaining);
+        continue;
+      }
+      const response = takeResponse(id);
+      if (response) return response;
+      // The worker has replied but the message is not readable yet; poll briefly rather than fail.
+      Atomics.wait(signal, 0, current, 5);
+    }
+  }
 
   function request(message) {
     if (closed) throw new Error('PostgreSQL connection is closed.');
-    Atomics.store(signal, 0, 0);
-    port1.postMessage(message);
-    if (Atomics.wait(signal, 0, 0, 30_000) === 'timed-out') {
+    const id = ++sequence;
+    const replies = Atomics.load(signal, 0);
+    port1.postMessage({ ...message, id });
+    const response = awaitResponse(id, replies, Date.now() + 30_000);
+    if (!response) {
       closed = true;
       port1.close();
       void worker.terminate();
       throw new Error('PostgreSQL operation timed out; connection closed.');
     }
-    const response = receiveMessageOnPort(port1)?.message;
-    if (!response) throw new Error('PostgreSQL worker did not return a response.');
     if (response.error) {
       const error = new Error(response.error.message);
       error.code = response.error.code;

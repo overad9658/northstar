@@ -54,15 +54,24 @@ function ensureColumn(db, table, column, definition) {
   if (!hasColumn(db, table, column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
 }
 
-export function transaction(db, callback) {
+const openTransactions = new WeakSet();
+
+// A nested call joins the outer transaction. lockKey serializes writers across PostgreSQL connections;
+// SQLite's BEGIN IMMEDIATE already serializes them.
+export function transaction(db, callback, { lockKey } = {}) {
+  if (openTransactions.has(db)) return callback();
   db.exec('BEGIN IMMEDIATE');
+  openTransactions.add(db);
   try {
+    if (lockKey && db.dialect === 'postgres') db.prepare('SELECT pg_advisory_xact_lock(hashtext(?))').get(lockKey);
     const result = callback();
     db.exec('COMMIT');
     return result;
   } catch (error) {
     db.exec('ROLLBACK');
     throw error;
+  } finally {
+    openTransactions.delete(db);
   }
 }
 
@@ -195,6 +204,15 @@ function createRelatedTables(db) {
       exited_at TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_kanban_card_history_card ON kanban_card_history(card_id, entered_at, id);
+    CREATE TABLE IF NOT EXISTS card_changes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      card_id INTEGER NOT NULL REFERENCES kanban_cards(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL CHECK(kind IN ('updated', 'decided', 'assigned', 'archived', 'restored')),
+      detail TEXT NOT NULL DEFAULT '{}',
+      actor TEXT NOT NULL DEFAULT '',
+      changed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_card_changes_changed ON card_changes(changed_at, id);
     CREATE TABLE IF NOT EXISTS planning_sessions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       token TEXT NOT NULL UNIQUE,
@@ -217,6 +235,26 @@ function createRelatedTables(db) {
       PRIMARY KEY(session_id, project_id)
     );
     CREATE INDEX IF NOT EXISTS idx_planning_sessions_project ON planning_sessions(project_id, created_at DESC);
+    CREATE TABLE IF NOT EXISTS project_changes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      field TEXT NOT NULL CHECK(field IN ('status', 'archived', 'team', 'capacity')),
+      from_value TEXT NOT NULL,
+      to_value TEXT NOT NULL,
+      note TEXT NOT NULL DEFAULT '',
+      actor TEXT NOT NULL DEFAULT '',
+      changed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_project_changes_changed ON project_changes(changed_at, id);
+    CREATE TABLE IF NOT EXISTS api_tokens (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      scope TEXT NOT NULL CHECK(scope IN ('read', 'write')),
+      token_hash TEXT NOT NULL UNIQUE,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      last_used_at TEXT,
+      revoked_at TEXT
+    );
   `);
   ensureColumn(db, 'portfolio_settings', 'api_token_hash', "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, 'portfolio_settings', 'api_token_created_at', 'TEXT');
@@ -224,6 +262,15 @@ function createRelatedTables(db) {
   ensureColumn(db, 'planning_session_projects', 'revealed', 'INTEGER NOT NULL DEFAULT 0 CHECK(revealed IN (0, 1))');
   ensureColumn(db, 'planning_session_projects', 'move_comment', "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, 'planning_sessions', 'guest_access', 'INTEGER NOT NULL DEFAULT 1 CHECK(guest_access IN (0, 1))');
+  ensureColumn(db, 'kanban_cards', 'assignee', "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, 'kanban_cards', 'external_url', "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, 'kanban_cards', 'next_step', "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, 'kanban_cards', 'decision', "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, 'kanban_cards', 'card_key', 'TEXT');
+  ensureColumn(db, 'kanban_cards', 'archived', 'INTEGER NOT NULL DEFAULT 0 CHECK(archived IN (0, 1))');
+  ensureColumn(db, 'kanban_cards', 'archived_at', 'TEXT');
+  ensureColumn(db, 'kanban_cards', 'source', "TEXT NOT NULL DEFAULT ''");
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_kanban_cards_key ON kanban_cards(card_key) WHERE card_key IS NOT NULL');
   ensureColumn(db, 'projects', 'hidden_from_read_only', 'INTEGER NOT NULL DEFAULT 0 CHECK(hidden_from_read_only IN (0, 1))');
   db.exec(`
     INSERT OR IGNORE INTO planning_session_projects
@@ -356,7 +403,7 @@ export function openDatabase(filePath, { client = 'sqlite', connectionString } =
           CREATE INDEX IF NOT EXISTS idx_planning_votes_session_project ON planning_votes(session_id, project_id, updated_at);
           CREATE INDEX IF NOT EXISTS idx_project_moves_project_date ON project_moves(project_id, moved_at DESC, id DESC);
         `);
-      });
+      }, { lockKey: 'northstar:migrate' });
       return db;
     } catch (error) { db.close(); throw error; }
   }

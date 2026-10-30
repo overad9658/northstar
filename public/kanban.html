@@ -24,6 +24,9 @@
         <label class="field"><span>Team board</span><select id="team-board"></select></label>
         <label class="field"><span>Filter by project</span><select id="project-filter"><option value="all">All projects</option><option value="none">General to dos</option></select></label>
         <label class="field"><span>Filter by tag</span><select id="tag-filter"><option value="">All tags</option></select></label>
+        <label class="field"><span>Filter by assignee</span><select id="assignee-filter"><option value="">Everyone</option><option value="none">Unassigned</option></select></label>
+        <label class="field"><span>Filter by decision</span><select id="decision-filter"><option value="">All cards</option><option value="open">Open decisions</option></select></label>
+        <label class="kanban-archived-toggle"><input id="show-archived" type="checkbox"><span>Show archived</span></label>
       </div>
       <p class="form-error" id="board-error" role="alert"></p>
       <section id="kanban-board" class="kanban-board" aria-label="Kanban board"></section>
@@ -34,10 +37,21 @@
         <label class="field wide"><span>Title</span><input name="title" maxlength="200" required placeholder="What needs to be done?"></label>
         <label class="field wide"><span>Details <small>Optional</small></span><textarea name="description" maxlength="2000" rows="4" placeholder="Add context or next steps"></textarea></label>
         <label class="field wide"><span>Column</span><select name="columnId" required></select></label>
+        <label class="field wide"><span>Assignee <small>Optional</small></span><input name="assignee" maxlength="80" list="assignee-options" placeholder="Who owns this card?"><datalist id="assignee-options"></datalist></label>
+        <label class="field wide"><span>Link <small>Optional · e.g. a pull request or ticket</small></span><input name="externalUrl" type="url" maxlength="2048" placeholder="https://"></label>
+        <label class="field wide"><span>Next step <small>Optional · the exact next action or command</small></span><textarea name="nextStep" maxlength="1000" rows="2" placeholder="e.g. Merge PR 12 once checks pass"></textarea></label>
+        <fieldset class="kanban-decision">
+          <legend>Decision <small>Optional</small></legend>
+          <label class="field wide"><span>Options <small>One per line</small></span><textarea name="decisionOptions" rows="3" placeholder="Ship now&#10;Wait for review"></textarea></label>
+          <label class="field"><span>Recommendation</span><input name="decisionRecommendation" maxlength="200" list="decision-option-list"></label>
+          <label class="field"><span>Confidence <small>0–100</small></span><input name="decisionConfidence" type="number" min="0" max="100" step="1"></label>
+          <label class="field wide"><span>Decided</span><select name="decidedOption"><option value="">Not decided yet</option></select></label>
+          <datalist id="decision-option-list"></datalist>
+        </fieldset>
         <label class="field wide"><span>Project <small>Optional</small></span><select name="projectId"><option value="">No project — general to do</option></select></label>
         <label class="field wide"><span>Tags <small>Optional · separate with commas</small></span><input name="tags" maxlength="1000" placeholder="e.g. follow-up, release, urgent"></label>
         <p class="form-error" id="card-error" role="alert"></p>
-        <footer class="dialog-actions"><button class="delete-button" id="delete-card" type="button">Delete card</button><span></span><button class="button secondary" id="cancel-card" type="button">Cancel</button><button class="button primary" type="submit">Save card</button></footer>
+        <footer class="dialog-actions"><button class="delete-button" id="delete-card" type="button">Delete card</button><button class="button secondary" id="archive-card" type="button">Archive card</button><span></span><button class="button secondary" id="cancel-card" type="button">Cancel</button><button class="button primary" type="submit">Save card</button></footer>
       </form>
       <section class="kanban-notes" id="card-notes" hidden aria-labelledby="card-notes-title">
         <div class="kanban-notes-head"><h3 id="card-notes-title">Notes</h3><span id="note-count">0 notes</span></div>

@@ -140,11 +140,13 @@ function renderProjectQueue(room, project) {
 }
 
 function renderVoteList(project, votes) {
-  $('#vote-list').innerHTML = votes.length ? votes.map((vote, index) => `
-    <article class="vote-row ${Number.isInteger(vote.impact) ? '' : 'locked'}" data-vote="${vote.id}" style="border-left:3px solid ${palette[index % palette.length]}">
+  $('#vote-list').innerHTML = votes.length ? votes.map((vote) => `
+    <article class="vote-row ${Number.isInteger(vote.impact) ? '' : 'locked'}" data-vote="${vote.id}">
       <header><h3>${escapeHtml(vote.voterName)}${vote.isMine ? ' <small>(you)</small>' : ''}</h3><span>${Number.isInteger(vote.impact) ? `I ${vote.impact} · U ${vote.urgency}` : '🔒 Private'}</span></header>
       ${Number.isInteger(vote.impact) ? `<div class="vote-values"><span>Impact<strong>${vote.impact}</strong></span><span>Urgency<strong>${vote.urgency}</strong></span><span>Confidence<strong>${vote.confidence}</strong></span><span>Effort<strong>${vote.effort}</strong></span></div>` : '<p class="locked-vote">Vote locked in until the leader reveals the round.</p>'}
     </article>`).join('') : '<p class="no-votes">Responses for this project will appear here as people vote.</p>';
+  // Set through the CSSOM: the page's Content-Security-Policy refuses inline style attributes.
+  document.querySelectorAll('#vote-list .vote-row').forEach((row, index) => { row.style.borderLeft = `3px solid ${palette[index % palette.length]}`; });
   if (isLeader && project.revealed && project.status === 'Open') {
     document.querySelectorAll('.vote-row:not(.locked)').forEach((row) => row.addEventListener('click', () => {
       const vote = votes.find((item) => item.id === Number(row.dataset.vote));

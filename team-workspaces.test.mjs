@@ -3,11 +3,11 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { startServer, stopServer } from './support/server-fixture.mjs';
+import { freePort, startServer, stopServer } from './support/server-fixture.mjs';
 
 test('team managers, members, boards, and the portfolio rollup stay scoped', async (t) => {
   const dataDir = await mkdtemp(join(tmpdir(), 'northstar-team-workspaces-'));
-  const port = 39000 + (process.pid % 1000);
+  const port = await freePort();
   const child = await startServer(dataDir, port, { AUTH_DISABLED: 'false' });
   t.after(async () => { await stopServer(child); await rm(dataDir, { recursive: true, force: true }); });
   const base = `http://127.0.0.1:${port}`;

@@ -23,6 +23,7 @@
             <div class="app-menu-panel">
               <a class="app-menu-item" href="/kanban.html"><span aria-hidden="true">▦</span><strong>Kanban board</strong><small>General tasks and project work</small></a>
               <a class="app-menu-item" href="/teams.html"><span aria-hidden="true">◎</span><strong>Teams</strong><small>View capacity</small></a>
+              <a class="app-menu-item" href="/docs.html"><span aria-hidden="true">?</span><strong>Docs</strong><small>API and MCP reference</small></a>
               <a class="app-menu-item" data-admin href="/users.html"><span aria-hidden="true">♙</span><strong>Users</strong><small>Manage access and roles</small></a>
               <a class="app-menu-item" data-admin href="/sso.html"><span aria-hidden="true">⌘</span><strong>Single sign-on</strong><small>Configure SAML and OIDC</small></a>
               <button class="app-menu-item" data-admin id="open-api-token" type="button"><span aria-hidden="true">⌁</span><strong>API access</strong><small>Generate a bearer token</small></button>
@@ -187,6 +188,7 @@
           <label class="field"><span>New API token</span><div class="link-field"><input id="api-token-value" readonly spellcheck="false"><button class="button secondary" id="copy-api-token" type="button">Copy</button></div></label>
           <p class="backup-warning"><strong>Copy this token now.</strong> It cannot be shown again after this dialog closes.</p>
         </div>
+        <p class="share-note"><a href="/docs.html?doc=api#authentication">How to use this token</a> · <a href="/docs.html?doc=mcp">Use it with the MCP server</a></p>
         <p class="share-note">Generating a new token immediately revokes any current UI-generated token. If an environment token is configured, the new token replaces it.</p>
         <p class="form-error" id="api-token-error" role="alert"></p>
         <footer class="share-actions"><button class="button secondary" id="cancel-api-token" type="button">Close</button><button class="button primary" id="generate-api-token" type="button">Generate token</button></footer>

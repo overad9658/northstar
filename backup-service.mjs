@@ -28,11 +28,13 @@ function validateBackupDocument(input) {
   if (input.kanbanCardNotes !== undefined && (!Array.isArray(input.kanbanCardNotes) || input.kanbanCardNotes.length > 250_000)) throw new Error('The backup contains invalid kanban card notes.');
   if (input.kanbanCardHistory !== undefined && (!Array.isArray(input.kanbanCardHistory) || input.kanbanCardHistory.length > 500_000)) throw new Error('The backup contains invalid kanban card history.');
   if (input.kanbanCardTags !== undefined && (!Array.isArray(input.kanbanCardTags) || input.kanbanCardTags.length > 2_000_000)) throw new Error('The backup contains invalid kanban card tags.');
+  if (input.projectChanges !== undefined && (!Array.isArray(input.projectChanges) || input.projectChanges.length > 1_000_000)) throw new Error('The backup contains invalid project changes.');
+  if (input.cardChanges !== undefined && (!Array.isArray(input.cardChanges) || input.cardChanges.length > 1_000_000)) throw new Error('The backup contains invalid card changes.');
   const totalCapacity = Number(input.settings?.totalCapacity);
   if (!Number.isInteger(totalCapacity) || totalCapacity < 0 || totalCapacity > 9999) {
     throw new Error('The backup contains an invalid team capacity.');
   }
-  return { ...input, teams: input.teams || [], teamMembers: input.teamMembers || [], kanbanColumns: input.kanbanColumns || [], kanbanCards: input.kanbanCards || [], kanbanCardNotes: input.kanbanCardNotes || [], kanbanCardHistory: input.kanbanCardHistory || [], kanbanCardTags: input.kanbanCardTags || [], totalCapacity };
+  return { ...input, teams: input.teams || [], teamMembers: input.teamMembers || [], kanbanColumns: input.kanbanColumns || [], kanbanCards: input.kanbanCards || [], kanbanCardNotes: input.kanbanCardNotes || [], kanbanCardHistory: input.kanbanCardHistory || [], kanbanCardTags: input.kanbanCardTags || [], projectChanges: input.projectChanges || [], cardChanges: input.cardChanges || [], totalCapacity };
 }
 
 function prepareRestoreStatements(db) {
@@ -60,10 +62,12 @@ function prepareRestoreStatements(db) {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `),
     kanbanColumn: db.prepare('INSERT INTO kanban_columns (id, name, position, team_id, created_at) VALUES (?, ?, ?, ?, ?)'),
-    kanbanCard: db.prepare('INSERT INTO kanban_cards (id, column_id, project_id, team_id, title, description, position, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'),
+    kanbanCard: db.prepare('INSERT INTO kanban_cards (id, column_id, project_id, team_id, title, description, assignee, external_url, next_step, decision, card_key, archived, archived_at, source, position, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'),
     kanbanNote: db.prepare('INSERT INTO kanban_card_notes (id, card_id, body, created_at) VALUES (?, ?, ?, ?)'),
     kanbanHistory: db.prepare('INSERT INTO kanban_card_history (id, card_id, column_id, column_name, entered_at, exited_at) VALUES (?, ?, ?, ?, ?, ?)'),
     kanbanTag: db.prepare('INSERT INTO kanban_card_tags (card_id, name) VALUES (?, ?)'),
+    projectChange: db.prepare('INSERT INTO project_changes (id, project_id, field, from_value, to_value, note, actor, changed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'),
+    cardChange: db.prepare('INSERT INTO card_changes (id, card_id, kind, detail, actor, changed_at) VALUES (?, ?, ?, ?, ?, ?)'),
   };
 }
 
@@ -95,11 +99,13 @@ function insertBackupRows(db, backup) {
   for (const row of backup.kanbanColumns) insert.kanbanColumn.run(row.id, row.name, row.position, row.team_id ?? fallbackTeamId, row.created_at);
   for (const row of backup.kanbanCards) {
     const columnTeamId = db.prepare('SELECT team_id AS teamId FROM kanban_columns WHERE id = ?').get(row.column_id)?.teamId;
-    insert.kanbanCard.run(row.id, row.column_id, row.project_id ?? null, row.team_id ?? columnTeamId ?? fallbackTeamId, row.title, row.description ?? '', row.position, row.created_at, row.updated_at);
+    insert.kanbanCard.run(row.id, row.column_id, row.project_id ?? null, row.team_id ?? columnTeamId ?? fallbackTeamId, row.title, row.description ?? '', row.assignee ?? '', row.external_url ?? '', row.next_step ?? '', row.decision ?? '', row.card_key || null, row.archived ? 1 : 0, row.archived_at ?? null, row.source ?? '', row.position, row.created_at, row.updated_at);
   }
   for (const row of backup.kanbanCardNotes) insert.kanbanNote.run(row.id, row.card_id, row.body, row.created_at);
   for (const row of backup.kanbanCardHistory) insert.kanbanHistory.run(row.id, row.card_id, row.column_id, row.column_name, row.entered_at, row.exited_at ?? null);
   for (const row of backup.kanbanCardTags) insert.kanbanTag.run(row.card_id, row.name);
+  for (const row of backup.cardChanges) insert.cardChange.run(row.id, row.card_id, row.kind, row.detail ?? '{}', row.actor ?? '', row.changed_at);
+  for (const row of backup.projectChanges) insert.projectChange.run(row.id, row.project_id, row.field, row.from_value, row.to_value, row.note ?? '', row.actor ?? '', row.changed_at);
   backfillKanbanHistory(db);
   for (const row of backup.projectMoves) insert.move.run(row.id, row.project_id, row.from_impact, row.from_urgency, row.to_impact, row.to_urgency, row.source, row.comment ?? '', row.moved_at);
   for (const row of backup.planningSessions) insert.session.run(row.id, row.token, row.leader_key, row.project_id, row.status, row.final_impact, row.final_urgency, row.final_confidence, row.final_effort, row.guest_access ?? 1, row.created_at, row.decided_at);
@@ -146,6 +152,8 @@ export function createBackupService(db) {
         kanbanCardNotes: db.prepare('SELECT * FROM kanban_card_notes ORDER BY card_id, created_at, id').all(),
         kanbanCardHistory: db.prepare('SELECT * FROM kanban_card_history ORDER BY card_id, entered_at, id').all(),
         kanbanCardTags: db.prepare('SELECT * FROM kanban_card_tags ORDER BY card_id, name').all(),
+        projectChanges: db.prepare('SELECT * FROM project_changes ORDER BY id').all(),
+        cardChanges: db.prepare('SELECT * FROM card_changes ORDER BY id').all(),
       };
     },
 
@@ -154,6 +162,8 @@ export function createBackupService(db) {
       try {
         transaction(db, () => {
           db.exec(`
+            DELETE FROM card_changes;
+            DELETE FROM project_changes;
             DELETE FROM kanban_card_tags;
             DELETE FROM kanban_card_history;
             DELETE FROM kanban_card_notes;
@@ -166,7 +176,7 @@ export function createBackupService(db) {
             DELETE FROM projects;
             DELETE FROM teams;
           `);
-          if (db.dialect !== 'postgres') db.exec("DELETE FROM sqlite_sequence WHERE name IN ('projects', 'teams', 'project_moves', 'planning_sessions', 'planning_votes', 'kanban_columns', 'kanban_cards', 'kanban_card_notes', 'kanban_card_history')");
+          if (db.dialect !== 'postgres') db.exec("DELETE FROM sqlite_sequence WHERE name IN ('projects', 'teams', 'project_moves', 'planning_sessions', 'planning_votes', 'kanban_columns', 'kanban_cards', 'kanban_card_notes', 'kanban_card_history', 'project_changes', 'card_changes')");
           db.prepare('UPDATE portfolio_settings SET total_capacity = ? WHERE id = 1').run(backup.totalCapacity);
           insertBackupRows(db, backup);
           db.prepare('UPDATE portfolio_settings SET total_capacity = (SELECT COALESCE(SUM(capacity), 0) FROM teams) WHERE id = 1').run();

@@ -4,14 +4,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
-import { startServer, stopServer } from './support/server-fixture.mjs';
+import { freePort, startServer, stopServer } from './support/server-fixture.mjs';
 
 const token = 'test-bulk-token';
 const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json' };
 
 test('bulk project API requires a token and applies add, archive, and delete atomically', async (t) => {
   const dataDir = await mkdtemp(join(tmpdir(), 'northstar-bulk-api-'));
-  const port = 32000 + (process.pid % 1000);
+  const port = await freePort();
   const child = await startServer(dataDir, port, { API_TOKEN: token });
   const base = `http://127.0.0.1:${port}/api/projects`;
 
@@ -76,7 +76,7 @@ test('bulk project API requires a token and applies add, archive, and delete ato
 
 test('bulk project API is disabled when API_TOKEN is not configured', async (t) => {
   const dataDir = await mkdtemp(join(tmpdir(), 'northstar-bulk-disabled-'));
-  const port = 33000 + (process.pid % 1000);
+  const port = await freePort();
   const child = await startServer(dataDir, port, { API_TOKEN: '' });
   t.after(async () => {
     await stopServer(child);
@@ -91,7 +91,7 @@ test('bulk project API is disabled when API_TOKEN is not configured', async (t) 
 
 test('UI-generated API tokens are hashed, persisted, and rotated', async (t) => {
   const dataDir = await mkdtemp(join(tmpdir(), 'northstar-generated-token-'));
-  const port = 34000 + (process.pid % 1000);
+  const port = await freePort();
   let child = await startServer(dataDir, port, { API_TOKEN: 'environment-token' });
   const root = `http://127.0.0.1:${port}`;
 

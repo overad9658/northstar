@@ -35,12 +35,17 @@ COPY package.json \
     postgres-database.mjs \
     postgres-worker.mjs \
     http-utils.mjs \
+    rate-limit.mjs \
     planning-service.mjs \
     project-domain.mjs \
     project-service.mjs \
     team-service.mjs \
+    activity-service.mjs \
+    events-service.mjs \
     kanban-service.mjs ./
 COPY public ./public
+COPY docs/*.md ./docs/
+COPY mcp/README.md ./mcp/README.md
 
 RUN mkdir -p /data && chown -R node:node /app /data
 USER node

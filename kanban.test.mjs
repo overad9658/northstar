@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { startServer, stopServer } from './support/server-fixture.mjs';
+import { freePort, startServer, stopServer } from './support/server-fixture.mjs';
 
 test('Docker image includes every local server module', async () => {
   const dockerfile = await readFile(new URL('./Dockerfile', import.meta.url), 'utf8');
@@ -20,7 +20,7 @@ test('Docker image includes every local server module', async () => {
 
 test('kanban cards can stand alone, link to projects, move, and survive backup restore', async () => {
   const dataDir = await mkdtemp(join(tmpdir(), 'northstar-kanban-'));
-  const port = 33000 + (process.pid % 1000);
+  const port = await freePort();
   const child = await startServer(dataDir, port);
   const base = `http://127.0.0.1:${port}`;
   const request = (path, method = 'GET', body) => fetch(`${base}${path}`, {

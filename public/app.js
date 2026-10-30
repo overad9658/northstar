@@ -2,6 +2,7 @@ import {
   $, capacityForTeams, escapeHtml, isFocusProject, needsBlockedNote, requestJson, scoresFromPoint, showToast, syncRangeOutputs,
 } from './browser-utils.js';
 import { layoutProjectDots } from './matrix-geometry.js';
+import { liveUpdates } from './live-updates.js';
 import {
   findFocusNowOccupant,
   projectLabel,
@@ -752,4 +753,13 @@ archiveNoteDialog.addEventListener('cancel', (event) => { event.preventDefault()
 let resizeTimer;
 window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(render, 100); });
 
-load();
+load().then(() => {
+  if (!state.user) return;
+  liveUpdates(['projects', 'teams'], async (kinds) => {
+    [state.projects, state.teams] = await Promise.all([
+      kinds.includes('projects') ? request() : state.projects,
+      kinds.includes('teams') ? requestJson('/api/teams') : state.teams,
+    ]);
+    render();
+  }, { busy: () => Boolean(state.dragged || state.pendingMove || state.pendingBlockedSave || state.pendingArchiveSave) });
+});
