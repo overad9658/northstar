@@ -20,6 +20,6 @@
     "pg": "^8.23.1"
   },
   "devDependencies": {
-    "xml-crypto": "^6.3.2"
+    "xml-crypto": "^6.4.0"
   }
 }
