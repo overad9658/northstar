@@ -256,6 +256,7 @@ function createRelatedTables(db) {
       revoked_at TEXT
     );
   `);
+  ensureColumn(db, 'api_tokens', 'created_by', 'INTEGER REFERENCES users(id) ON DELETE SET NULL');
   ensureColumn(db, 'portfolio_settings', 'api_token_hash', "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, 'portfolio_settings', 'api_token_created_at', 'TEXT');
   ensureColumn(db, 'project_moves', 'comment', "TEXT NOT NULL DEFAULT ''");

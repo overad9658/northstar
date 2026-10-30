@@ -96,9 +96,10 @@ curl -b cookies.txt -X POST http://localhost:3000/api/users \
 | --- | --- | --- | --- |
 | `GET` | `/api/api-token` | admin session | Whether the single UI token or `API_TOKEN` is configured. |
 | `POST` | `/api/api-token` | admin session | Generate the single UI token, revoking the previous one. Returned once. |
-| `GET` | `/api/api-tokens` | admin session | List named tokens (never the token or its hash). |
+| `GET` | `/api/api-tokens` | admin session | List named tokens (never the token or its hash), each with `createdBy: { id, username }` or `null`. |
 | `POST` | `/api/api-tokens` | admin session | Create a named token: `{ "name", "scope": "read" \| "write" }`. Returned once. |
 | `DELETE` | `/api/api-tokens/:id` | admin session | Revoke a named token. `204`. |
+| `GET` | `/api/token/self` | any token | The calling token's `{ name, scope, createdBy }`. `createdBy` is `null` for the **API access** / `API_TOKEN` token, or when the creating user was deleted. A session alone gets `401`. |
 
 ```sh
 curl -b cookies.txt -X POST http://localhost:3000/api/api-tokens \
@@ -180,7 +181,7 @@ from `GET /api/kanban?teamId=<id>`). Creating a column without
 | `GET` | `/api/kanban/projects` | token endpoint | Project ids and names for card links. |
 | `GET` | `/api/kanban/report` | token endpoint | Every card's column history and durations. |
 | `POST` | `/api/kanban/columns` | token endpoint | Create a column: `{ "name" }`. |
-| `PUT`, `DELETE` | `/api/kanban/columns/:id` | token endpoint | Rename or delete a column (and its cards). |
+| `PUT`, `DELETE` | `/api/kanban/columns/:id` | token endpoint | Rename (`name`) or reorder (`position`, 0-based on that team's board; the others shift so positions stay 0..n-1) a column, or delete it (and its cards). |
 | `GET` | `/api/kanban/cards` | token endpoint | Find cards by `?key=`, `?externalUrl=`, `?projectId=`, `?decision=open`, `?tag=` or `?source=`; add `?archived=include` or `?archived=only` for archived cards. |
 | `POST` | `/api/kanban/cards` | token endpoint | Create a card: `columnId` and `title` required. |
 | `GET`, `PUT`, `DELETE` | `/api/kanban/cards/:id` | token endpoint | Read, partially update (including `columnId` to move and `archived: true/false` to archive or restore) or delete a card. |

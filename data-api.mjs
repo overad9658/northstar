@@ -23,21 +23,29 @@ export function apiTokenAccess(db, req, { apiToken = process.env.API_TOKEN } = {
   const match = String(req.headers.authorization || '').match(/^Bearer (.+)$/i);
   if (!match) return null;
   const settings = db.prepare('SELECT api_token_hash AS hash FROM portfolio_settings WHERE id = 1').get();
-  if (authorized(req, apiToken, settings?.hash)) return { name: 'API token', scope: 'write' };
-  const row = db.prepare('SELECT id, name, scope FROM api_tokens WHERE token_hash = ? AND revoked_at IS NULL')
-    .get(tokenHash(match[1]).toString('hex'));
+  if (authorized(req, apiToken, settings?.hash)) return { name: 'API token', scope: 'write', createdBy: null };
+  const row = db.prepare(`
+    SELECT t.id, t.name, t.scope, t.created_by AS createdById, u.username AS createdByName
+    FROM api_tokens t LEFT JOIN users u ON u.id = t.created_by
+    WHERE t.token_hash = ? AND t.revoked_at IS NULL
+  `).get(tokenHash(match[1]).toString('hex'));
   if (!row) return null;
   db.prepare("UPDATE api_tokens SET last_used_at = CURRENT_TIMESTAMP WHERE id = ? AND (last_used_at IS NULL OR last_used_at < datetime('now', ?))")
     .run(row.id, '-60 seconds');
-  return { name: row.name, scope: row.scope };
+  return { name: row.name, scope: row.scope, createdBy: row.createdById ? { id: row.createdById, username: row.createdByName } : null };
 }
 
 export function isApiTokenAuthorized(db, req, options) {
   return apiTokenAccess(db, req, options)?.scope === 'write';
 }
 
+const tokenRowsSql = 'SELECT t.*, u.username AS created_by_username FROM api_tokens t LEFT JOIN users u ON u.id = t.created_by';
+
 function publicToken(row) {
-  return { id: row.id, name: row.name, scope: row.scope, createdAt: row.created_at, lastUsedAt: row.last_used_at || null, revokedAt: row.revoked_at || null };
+  return {
+    id: row.id, name: row.name, scope: row.scope, createdAt: row.created_at, lastUsedAt: row.last_used_at || null, revokedAt: row.revoked_at || null,
+    createdBy: row.created_by ? { id: row.created_by, username: row.created_by_username } : null,
+  };
 }
 
 function unauthorized(res) {
@@ -95,7 +103,7 @@ export function createDataApi(db, projects, { apiToken = process.env.API_TOKEN }
       const id = namedTokenMatch[1] ? Number(namedTokenMatch[1]) : null;
       if (req.method === 'GET' && !id) {
         res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
-        res.end(JSON.stringify(db.prepare('SELECT * FROM api_tokens ORDER BY id').all().map(publicToken)));
+        res.end(JSON.stringify(db.prepare(`${tokenRowsSql} ORDER BY t.id`).all().map(publicToken)));
         return true;
       }
       if (req.method === 'POST' && !id) {
@@ -104,8 +112,10 @@ export function createDataApi(db, projects, { apiToken = process.env.API_TOKEN }
         if (!name || name.length > 80) return json(res, 400, { error: 'Token name must be 1 to 80 characters.' }), true;
         if (!['read', 'write'].includes(input.scope)) return json(res, 400, { error: 'Token scope must be read or write.' }), true;
         const token = `northstar_${randomBytes(32).toString('base64url')}`;
-        const result = db.prepare('INSERT INTO api_tokens (name, scope, token_hash) VALUES (?, ?, ?)').run(name, input.scope, tokenHash(token).toString('hex'));
-        const row = db.prepare('SELECT * FROM api_tokens WHERE id = ?').get(result.lastInsertRowid);
+        // Development mode's built-in user has no users row, so its tokens have no recorded creator.
+        const creator = user.id > 0 && db.prepare('SELECT 1 FROM users WHERE id = ?').get(user.id) ? user.id : null;
+        const result = db.prepare('INSERT INTO api_tokens (name, scope, token_hash, created_by) VALUES (?, ?, ?, ?)').run(name, input.scope, tokenHash(token).toString('hex'), creator);
+        const row = db.prepare(`${tokenRowsSql} WHERE t.id = ?`).get(result.lastInsertRowid);
         res.writeHead(201, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
         res.end(JSON.stringify({ ...publicToken(row), token }));
         return true;

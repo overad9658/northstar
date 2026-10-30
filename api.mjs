@@ -65,6 +65,16 @@ export function createApi(db, { apiToken = process.env.API_TOKEN, tokenFailuresP
       }
       const bearerAccess = bearer ? apiTokenAccess(db, req, { apiToken }) : null;
       if (bearer && !bearerAccess) tokenFailures.fail(clientIp);
+      if (url.pathname === '/api/token/self') {
+        if (req.method !== 'GET') return json(res, 405, { error: 'Method not allowed.' }), true;
+        if (!bearerAccess) {
+          res.setHeader('www-authenticate', 'Bearer realm="Northstar API"');
+          return json(res, 401, { error: 'A valid bearer token is required.' }), true;
+        }
+        res.setHeader('cache-control', 'no-store');
+        const { name, scope, createdBy } = bearerAccess;
+        return json(res, 200, { name, scope, createdBy }), true;
+      }
       const kanbanPath = url.pathname === '/api/kanban' || url.pathname.startsWith('/api/kanban/');
       if (kanbanPath) res.setHeader('cache-control', 'no-store');
       if (url.pathname === '/api/admin/sso') {

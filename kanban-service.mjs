@@ -215,10 +215,22 @@ export function createKanbanService(db) {
       const result = db.prepare('INSERT INTO kanban_columns (name, position, team_id) VALUES (?, ?, ?)').run(name, nextPosition('kanban_columns', 'WHERE team_id = ?', teamId), teamId);
       return column(result.lastInsertRowid);
     },
+    // Renames a column and/or moves it to `position` on its own team's board; positions stay 0..n-1.
     updateColumn(id, input) {
-      checkTeam(column(id).teamId, input?.teamId);
-      const name = requiredText(input?.name, 'Column name', 80);
-      db.prepare('UPDATE kanban_columns SET name = ? WHERE id = ?').run(name, id);
+      const current = column(id);
+      checkTeam(current.teamId, input?.teamId);
+      if (input?.name === undefined && input?.position === undefined) throw new KanbanError(400, 'Send a name or a position.');
+      const name = input?.name === undefined ? current.name : requiredText(input.name, 'Column name', 80);
+      const position = input?.position === undefined ? null : Number(input.position);
+      if (position !== null && (!Number.isInteger(position) || position < 0)) throw new KanbanError(400, 'Column position must be a whole number of 0 or more.');
+      transaction(db, () => {
+        db.prepare('UPDATE kanban_columns SET name = ? WHERE id = ?').run(name, id);
+        if (position === null) return;
+        const others = db.prepare('SELECT id FROM kanban_columns WHERE team_id = ? AND id != ? ORDER BY position, id').all(current.teamId, id).map((row) => row.id);
+        others.splice(Math.min(position, others.length), 0, id);
+        const move = db.prepare('UPDATE kanban_columns SET position = ? WHERE id = ?');
+        others.forEach((columnId, index) => move.run(index, columnId));
+      });
       return column(id);
     },
     deleteColumn(id, teamId) {
