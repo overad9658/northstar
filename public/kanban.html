@@ -21,6 +21,7 @@
         <form id="column-form" class="kanban-add-column"><label class="field"><span>New column</span><input name="name" maxlength="80" placeholder="e.g. To do" required></label><button class="button primary" type="submit">+ Add column</button></form>
       </section>
       <div class="kanban-filters">
+        <label class="field kanban-search"><span>Find a card</span><input id="card-search" type="search" maxlength="200" placeholder="#12 or title" autocomplete="off"></label>
         <label class="field"><span>Team board</span><select id="team-board"></select></label>
         <label class="field" id="team-filter-field" hidden><span>Filter by team</span><select id="team-filter"><option value="">All teams</option></select></label>
         <label class="field"><span>Filter by project</span><select id="project-filter"><option value="all">All projects</option><option value="none">General to dos</option></select></label>

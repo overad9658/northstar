@@ -2,6 +2,7 @@ import { escapeHtml, requestJson, showToast } from './browser-utils.js';
 import { liveUpdates } from './live-updates.js';
 import { COLUMN_DRAG_TYPE, columnControls, dropTarget, moveTarget, reorderColumns } from './kanban-columns.js';
 import { ALL_BOARDS, targetColumn } from './shared/kanban-boards.js';
+import { cardMatches, requestedCard } from './shared/card-search.js';
 
 const board = document.querySelector('#kanban-board');
 const dialog = document.querySelector('#card-dialog');
@@ -27,6 +28,7 @@ const teamFilter = document.querySelector('#team-filter');
 const teamFilterField = document.querySelector('#team-filter-field');
 const cardTeamField = document.querySelector('#card-team-field');
 const exportButton = document.querySelector('#download-kanban-report');
+const cardSearch = document.querySelector('#card-search');
 let data = { columns: [], cards: [] };
 let projects = [];
 let canEdit = false;
@@ -39,6 +41,7 @@ let selectedProject = 'all';
 let selectedAssignee = '';
 let selectedDecision = '';
 let selectedTeamFilter = '';
+let searchText = '';
 let dragging = false;
 let editingCard = null;
 
@@ -88,10 +91,11 @@ function render() {
     teamFilter.innerHTML = '<option value="">All teams</option>' + data.teams.map((team) => `<option value="${team.id}">${escapeHtml(team.name)}</option>`).join('');
     teamFilter.value = selectedTeamFilter;
   }
-  const filtering = selectedTag || selectedAssignee || selectedDecision || selectedProject !== 'all' || selectedTeamFilter;
+  const filtering = searchText.trim() || selectedTag || selectedAssignee || selectedDecision || selectedProject !== 'all' || selectedTeamFilter;
   board.innerHTML = data.columns.length ? data.columns.map((column, columnIndex) => {
     const cards = data.cards.filter((card) => card.columnKey === column.key
       && (!selectedTeamFilter || String(card.teamId) === selectedTeamFilter)
+      && cardMatches(card, searchText)
       && (!selectedTag || card.tags?.includes(selectedTag))
       && (!selectedAssignee || (selectedAssignee === 'none' ? !card.assignee : card.assignee === selectedAssignee))
       && (selectedDecision !== 'open' || (card.decision && !card.decision.decidedOption))
@@ -99,7 +103,7 @@ function render() {
     return `<section class="kanban-column" data-column-id="${escapeHtml(column.key)}" aria-label="${escapeHtml(column.name)}">
       <header class="kanban-column-head"${canManageColumns ? ' draggable="true" title="Drag to reorder"' : ''}><div><h2>${escapeHtml(column.name)}</h2><span>${cards.length}</span></div>${columnControls(column, columnIndex, data.columns.length, canManageColumns)}</header>
       <div class="kanban-card-list">${cards.map((card) => `<article class="kanban-card${card.archived ? ' archived' : ''}" data-card-id="${card.id}" ${canEdit && canEditTeam(card.teamId) ? 'draggable="true"' : ''} tabindex="0" role="button" aria-label="${escapeHtml(card.title)}${allMode() ? `, ${escapeHtml(card.teamName)}` : ''}">
-        ${allMode() ? `<span class="kanban-team-tag ${teamTone(card.teamId)}" title="Team board">${escapeHtml(card.teamName)}</span>` : ''}${card.archived ? '<span class="kanban-archived-tag">Archived</span>' : ''}<h3>${escapeHtml(card.title)}</h3>${card.description ? `<p>${escapeHtml(card.description)}</p>` : ''}
+        ${allMode() ? `<span class="kanban-team-tag ${teamTone(card.teamId)}" title="Team board">${escapeHtml(card.teamName)}</span>` : ''}${card.archived ? '<span class="kanban-archived-tag">Archived</span>' : ''}<span class="kanban-card-id" title="Card number">#${card.id}</span><h3>${escapeHtml(card.title)}</h3>${card.description ? `<p>${escapeHtml(card.description)}</p>` : ''}
         ${card.assignee ? `<span class="kanban-assignee" title="Assignee">${escapeHtml(card.assignee)}</span>` : ''}
         ${card.nextStep ? `<p class="kanban-next-step"><strong>Next</strong> ${escapeHtml(card.nextStep)}</p>` : ''}
         ${card.decision ? `<span class="kanban-decision-tag${card.decision.decidedOption ? ' decided' : ''}">${card.decision.decidedOption
@@ -131,7 +135,7 @@ function openCard(columnKey, card = null) {
   archiveButton.textContent = card?.archived ? 'Restore card' : 'Archive card';
   cardError.textContent = '';
   dialog.classList.toggle('editing', Boolean(card));
-  document.querySelector('#card-dialog-kicker').textContent = card ? 'Edit card' : 'New card';
+  document.querySelector('#card-dialog-kicker').textContent = card ? `Edit card · #${card.id}` : 'New card';
   document.querySelector('#card-dialog-title').textContent = card ? card.title : 'Add a card';
   form.elements.columnId.innerHTML = data.columns.map((column) => `<option value="${escapeHtml(column.key)}">${escapeHtml(column.name)}</option>`).join('');
   // On All boards a new card asks which team it belongs to; an existing card shows its team.
@@ -162,7 +166,7 @@ function openCard(columnKey, card = null) {
   historyList.innerHTML = '';
   noteError.textContent = '';
   dialog.showModal();
-  if (card) { void loadNotes(card.id); void loadHistory(card.id); }
+  if (card) { void loadNotes(card.id); void loadHistory(card.id); setCardParam(card.id); }
   if (canEdit) form.elements.title.focus();
 }
 
@@ -313,6 +317,7 @@ projectFilter.addEventListener('change', () => { selectedProject = projectFilter
 assigneeFilter.addEventListener('change', () => { selectedAssignee = assigneeFilter.value; render(); });
 decisionFilter.addEventListener('change', () => { selectedDecision = decisionFilter.value; render(); });
 teamFilter.addEventListener('change', () => { selectedTeamFilter = teamFilter.value; render(); });
+cardSearch.addEventListener('input', () => { searchText = cardSearch.value; render(); });
 form.elements.teamId.addEventListener('change', () => { form.elements.projectId.innerHTML = projectOptions(cardTeamId()); });
 showArchived.addEventListener('change', () => { reload().catch((error) => { boardError.textContent = error.message; }); });
 archiveButton.addEventListener('click', async () => {
@@ -473,6 +478,8 @@ document.querySelector('#delete-card').addEventListener('click', async () => {
   catch (error) { cardError.textContent = error.message; }
 });
 document.querySelector('#close-card-dialog').addEventListener('click', () => dialog.close());
+// While a card is open the address names it (?card=<id>), so the link can be shared.
+dialog.addEventListener('close', () => setCardParam(null));
 document.querySelector('#cancel-card').addEventListener('click', () => dialog.close());
 
 async function selectTeam(teamId) {
@@ -490,16 +497,37 @@ async function selectTeam(teamId) {
   render();
   history.replaceState(null, '', `?teamId=${teamId}`);
 }
+
+function setCardParam(cardId) {
+  const params = new URLSearchParams(location.search);
+  if (cardId) params.set('card', cardId); else params.delete('card');
+  history.replaceState(null, '', `?${params}`);
+}
+
+// ?card=<id> opens that card: on its own team's board, with archived cards shown if it is archived.
+async function openRequestedCard(cardId) {
+  let card;
+  try { card = await requestJson(`/api/kanban/cards/${cardId}`); } catch { boardError.textContent = `Card #${cardId} was not found.`; return; }
+  if (card.archived && !showArchived.checked) showArchived.checked = true;
+  if (!allMode() && selectedTeamId !== card.teamId) { teamBoard.value = String(card.teamId); await selectTeam(card.teamId); }
+  else if (card.archived) await reload();
+  const shown = data.cards.find((item) => item.id === cardId);
+  if (!shown) { boardError.textContent = `Card #${cardId} is not on this board.`; return; }
+  openCard(shown.columnKey, shown);
+}
 teamBoard.addEventListener('change', () => { void selectTeam(teamBoard.value === ALL_BOARDS ? ALL_BOARDS : Number(teamBoard.value)).catch((error) => { boardError.textContent = error.message; }); });
 try {
   currentUser = await requestJson('/api/auth/me');
   const teams = await requestJson('/api/teams');
   teamBoard.replaceChildren(...teams.map((team) => new Option(team.name, team.id)), ...(teams.length > 1 ? [new Option('All boards', ALL_BOARDS)] : []));
+  // Read before selectTeam rewrites the address.
+  const deepLink = requestedCard(location.search);
   const requestedParam = new URLSearchParams(location.search).get('teamId');
   const requested = Number(requestedParam);
   const initial = teams.find((team) => team.id === requested) || teams.find((team) => currentUser.teamIds.includes(team.id)) || teams[0];
   if (requestedParam === ALL_BOARDS && teams.length > 1) { teamBoard.value = ALL_BOARDS; await selectTeam(ALL_BOARDS); }
   else if (initial) { teamBoard.value = String(initial.id); await selectTeam(initial.id); }
+  if (deepLink) await openRequestedCard(deepLink);
   liveUpdates(['kanban', 'projects'], async (kinds) => {
     if (!selectedTeamId) return;
     // Column lists scroll on their own; keep each where the viewer left it.

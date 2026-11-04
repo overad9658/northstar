@@ -30,6 +30,8 @@
 .kanban-card[draggable] { cursor:grab; }
 .kanban-card[draggable]:active { cursor:grabbing; }
 .kanban-card:hover,.kanban-card:focus-visible { border-color:#95b2a5; outline:0; }
+.kanban-card-id { float:right; margin:0 0 4px 8px; color:var(--muted); font-size:10px; font-weight:700; font-variant-numeric:tabular-nums; }
+.kanban-search input { background:var(--white); }
 .kanban-card h3 { margin:0; font-size:13px; line-height:1.4; overflow-wrap:anywhere; }
 .kanban-card p { margin:8px 0 0; color:var(--muted); font-size:11px; line-height:1.45; white-space:pre-wrap; overflow-wrap:anywhere; }
 .kanban-tags { margin-top:9px; display:flex; flex-wrap:wrap; gap:5px; }
