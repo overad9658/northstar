@@ -1,0 +1,13 @@
+.todo-shell { max-width:960px; }
+.todo-shell .team-settings-card { background:var(--white); }
+.todo-add { grid-template-columns:minmax(0,1fr) auto; background:var(--paper); }
+.todo-list { list-style:none; padding:0; margin:24px 0 0; display:grid; gap:10px; }
+.todo-row { padding:16px; border:1px solid var(--line); border-radius:12px; display:flex; align-items:center; gap:12px; }
+.todo-check { width:20px; height:20px; flex-shrink:0; accent-color:var(--green); }
+.todo-title { flex:1; min-width:0; overflow-wrap:anywhere; font-size:14px; }
+.todo-complete .todo-title { text-decoration:line-through; color:var(--muted); }
+.todo-actions { display:flex; align-items:center; gap:8px; }
+.todo-edit { flex:1; display:flex; gap:8px; align-items:end; flex-wrap:wrap; }
+.todo-edit .field { flex:1; min-width:140px; margin:0; }
+.todo-empty { padding:24px 0 8px; color:var(--muted); text-align:center; }
+@media (max-width:600px) { .todo-add { grid-template-columns:1fr; }.todo-row { flex-wrap:wrap; }.todo-actions { width:100%; justify-content:flex-end; }.todo-shell .topbar-actions { flex-wrap:wrap; justify-content:flex-end; } }

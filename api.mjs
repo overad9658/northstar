@@ -10,6 +10,7 @@ import { createKanbanService, KanbanError } from './kanban-service.mjs';
 import { ActivityError, createActivityService } from './activity-service.mjs';
 import { createEventsService } from './events-service.mjs';
 import { createFailureLimiter, positiveInteger } from './rate-limit.mjs';
+import { createTodoService } from './todo-service.mjs';
 import { readFile } from 'node:fs/promises';
 
 // The docs page reads these two files and nothing else; no part of the request reaches the filesystem.
@@ -20,7 +21,7 @@ const DOCS = Object.freeze({
 
 // Lookup filters from the query string; absent parameters are left out.
 // Requests that never change projects, the board or teams; every other committed write is published.
-const UNPUBLISHED_PATHS = ['/api/auth/', '/api/users', '/api/admin/', '/api/api-token', '/api/events'];
+const UNPUBLISHED_PATHS = ['/api/auth/', '/api/users', '/api/admin/', '/api/api-token', '/api/events', '/api/todos'];
 const isPublishedWrite = (req, res, url) => !['GET', 'HEAD', 'OPTIONS'].includes(req.method) && res.statusCode < 300
   && !UNPUBLISHED_PATHS.some((path) => url.pathname.startsWith(path));
 
@@ -40,6 +41,7 @@ export function createApi(db, { apiToken = process.env.API_TOKEN, tokenFailuresP
   const projects = createProjectService(db);
   const teams = createTeamService(db);
   const kanban = createKanbanService(db);
+  const todos = createTodoService(db);
   const activity = createActivityService(db);
   const events = createEventsService({ projects, kanban, teams });
   const dataApi = createDataApi(db, projects, { apiToken });
@@ -53,6 +55,28 @@ export function createApi(db, { apiToken = process.env.API_TOKEN, tokenFailuresP
 
   async function handle(req, res, url) {
     try {
+      if (url.pathname === '/todos.html') {
+        res.setHeader('cache-control', 'no-store');
+        if (auth.disabled || !auth.userForRequest(req)) {
+          res.writeHead(302, { location: '/login.html?returnTo=%2Ftodos.html' });
+          res.end();
+          return true;
+        }
+        return false;
+      }
+      if (url.pathname === '/api/todos' || url.pathname.startsWith('/api/todos/')) {
+        res.setHeader('cache-control', 'no-store');
+        const user = requireUser(req);
+        if (auth.disabled || !user.id) throw new AuthError(401, 'Sign in to use your personal to-do list.');
+        const match = url.pathname.match(/^\/api\/todos(?:\/([A-Za-z0-9-]+))?$/);
+        if (!match) return json(res, 404, { error: 'To-do not found.' }), true;
+        const id = match[1];
+        if (req.method === 'GET' && !id) return json(res, 200, todos.list(user.id)), true;
+        if (req.method === 'POST' && !id) return json(res, 201, todos.create(user.id, await readJson(req))), true;
+        if (req.method === 'PUT' && id) return json(res, 200, todos.update(user.id, id, await readJson(req))), true;
+        if (req.method === 'DELETE' && id) { todos.delete(user.id, id); res.writeHead(204); res.end(); return true; }
+        return json(res, 405, { error: 'Method not allowed.' }), true;
+      }
       // Too many unknown bearer tokens from one address within a minute locks that address out of token auth.
       const bearer = url.pathname.startsWith('/api/') && /^Bearer /i.test(String(req.headers.authorization || ''));
       const clientIp = req.socket.remoteAddress || '';

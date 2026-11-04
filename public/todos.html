@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>My to-do list — Northstar</title>
+    <link rel="icon" href="/favicon.svg">
+    <script src="/theme.js"></script>
+    <link rel="stylesheet" href="/styles.css">
+    <link rel="stylesheet" href="/todos.css">
+    <script src="/todos.js" type="module"></script>
+  </head>
+  <body>
+    <main class="app-shell team-settings-shell todo-shell">
+      <header class="topbar">
+        <a class="brand" href="/" aria-label="Northstar home"><span class="brand-mark">N</span><span>Northstar</span></a>
+        <div class="topbar-actions"><button class="theme-toggle" data-theme-toggle type="button" aria-label="Switch to dark mode" aria-pressed="false"><span class="theme-icon-light" aria-hidden="true">☀</span><span class="theme-icon-dark" aria-hidden="true">☾</span></button><a class="button secondary button-link" href="/">← Priority matrix</a><button class="button secondary" id="sign-out" type="button">Sign out</button></div>
+      </header>
+      <section class="settings-intro">
+        <p class="eyebrow">Personal workspace</p>
+        <h1>My to-do list</h1>
+        <p class="subtitle">A little space for your next steps. Only you can see and manage these tasks.</p>
+      </section>
+      <p class="form-error" id="todo-error" role="alert"></p>
+      <section class="team-settings-card" id="todo-card" hidden>
+        <header class="settings-card-head"><div><h2>Your tasks</h2><p id="todo-summary" role="status" aria-live="polite"></p></div></header>
+        <form class="add-team-form todo-add" id="add-todo">
+          <label class="field"><span>New task</span><input name="title" required maxlength="200" autocomplete="off" placeholder="What would you like to do?"></label>
+          <button class="button primary" type="submit">Add task</button>
+        </form>
+        <p class="todo-empty" id="todo-empty" hidden>No tasks yet. Add your first next step above.</p>
+        <ul class="todo-list" id="todo-list" aria-label="Your to-do tasks"></ul>
+      </section>
+    </main>
+  </body>
+</html>

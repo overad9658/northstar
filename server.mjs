@@ -33,7 +33,7 @@ const server = createServer(async (req, res) => {
   try {
     const content = await readFile(filePath);
     const type = mime[extname(filePath)] || 'application/octet-stream';
-    res.writeHead(200, { 'content-type': type, 'cache-control': 'no-cache', ...(type.startsWith('text/html') ? { 'content-security-policy': contentSecurityPolicy } : {}) });
+    res.writeHead(200, { 'content-type': type, 'cache-control': pathname === '/todos.html' ? 'no-store' : 'no-cache', ...(type.startsWith('text/html') ? { 'content-security-policy': contentSecurityPolicy } : {}) });
     res.end(req.method === 'HEAD' ? undefined : content);
   } catch { json(res, 404, { error: 'Not found.' }); }
 });

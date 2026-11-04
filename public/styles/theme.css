@@ -1,4 +1,5 @@
 /* Header utilities plus light/dark color-mode overrides. */
+#personal-todos-link[hidden] { display:none; }
 .theme-toggle { width:38px; height:38px; padding:0; border:1px solid var(--line); border-radius:10px; color:var(--green); background:var(--white); display:inline-grid; place-items:center; flex:0 0 auto; font-size:17px; line-height:1; transition:transform .15s,background .15s,border-color .15s; }
 .theme-toggle:hover { transform:translateY(-1px); background:var(--green-2); }
 .theme-toggle:focus-visible { outline:2px solid #789589; outline-offset:2px; }

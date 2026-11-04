@@ -2,6 +2,12 @@
 
 A lightweight, persistent priority matrix for engineering portfolios. Projects are plotted by impact and urgency, ranked with confidence and effort, and saved to SQLite by default, with optional PostgreSQL support. An optional project ID can be shown on the matrix; when omitted, Northstar falls back to the project's initials.
 
+Use **Menu → My to-do list** for personal tasks. Any signed-in user can add, edit,
+complete, reopen, and delete their own tasks. Lists are private to each account, including
+from admins and API tokens, and persist across sign-ins. Personal tasks are excluded from
+shared portfolio backups, activity feeds, and boards. This page requires a real account
+and is unavailable with `AUTH_DISABLED=true`.
+
 ## Screenshots
 
 <p align="center">

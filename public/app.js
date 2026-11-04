@@ -132,6 +132,7 @@ async function request(path = '', options) {
 async function load() {
   try {
     state.user = await requestJson('/api/auth/me');
+    $('#personal-todos-link').hidden = !state.user.id;
     document.body.classList.toggle('read-only', state.user.role === 'read_only');
     $('#current-user').textContent = `${state.user.username} · ${state.user.role === 'admin' ? 'Admin' : state.user.role === 'team_manager' ? 'Team manager' : 'Team member'}`;
     document.querySelectorAll('[data-admin]').forEach((element) => { element.hidden = state.user.role !== 'admin'; });
