@@ -70,7 +70,8 @@ The token comes from your environment, so it is not written into the file:
 | `get_needs_you` | read | The count and first three cards waiting on the reader |
 | `export_progress` | read | Every definition, reading, milestone and report as one JSON document in a stable order |
 | `record_metrics` | write | One day's readings: `date` and `metrics: [{key, value, note?, rebuilt?}]` |
-| `define_metric` | write | Create or update a metric definition by `key` |
+| `define_metric` | write | Create or update a metric definition by `key`; `hidden: true` keeps it recording without a tile |
+| `remove_metric` | write | Remove a metric definition by `key`; its readings stay. Removing one that is gone changes nothing |
 | `upsert_report` | write | Create or replace a day's report: `date`, `markdown`, optional `bullets: [{text, metric_key?}]` |
 | `add_milestone` | write | Add a milestone: `date`, `label`, optional `metricKey` |
 | `set_needs_you` | write | Choose the board column, by `team` and `column` name, whose cards are waiting on the reader |

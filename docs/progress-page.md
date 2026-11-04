@@ -45,8 +45,11 @@ A metric with no readings yet is an empty outline with a faint dotted baseline. 
 
 ## 3. Why? The "because" line
 
-Under each tile is one short line that explains the change. It comes from, in order: the note
-on the day's reading, a line of the day's report that names the metric, or a milestone that day.
+Under each tile is one short line that explains the change. It comes only from sources tied to
+that metric, in order: the note on the day's reading, a line of the day's report that names the
+metric, or a milestone that day with the metric's key. Otherwise the line stays empty. A
+milestone without a metric key is a flag on the charts and an entry in the timeline strip, never
+a cause, so it cannot explain every tile at once. The headline's cause follows the same rule.
 Hovering a report line highlights its tile, and hovering a tile highlights its report lines.
 
 ## 4. How did we get here? The focus chart

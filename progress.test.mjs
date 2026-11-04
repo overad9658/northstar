@@ -9,7 +9,7 @@ import { openDatabase } from './database.mjs';
 import { createKanbanService } from './kanban-service.mjs';
 import { createProgressService } from './progress-service.mjs';
 import { becauseFor, chartGeometry, headline, signedChange, summarize, toneOf, changeText, niceTicks } from './public/progress-model.js';
-import { headlineNode, needsPanel, reportItem, tile, focusChart, milestoneStrip } from './public/progress-view.js';
+import { headlineNode, needsPanel, reportItem, singleReading, tile, focusChart, milestoneStrip } from './public/progress-view.js';
 import { freePort, startServer, stopServer } from './support/server-fixture.mjs';
 
 async function tempDb(t) {
@@ -151,7 +151,7 @@ test('the page model: direction colors, signed changes, the ask-only headline an
   const noted = summarize(def('a', 'up_good'), [{ date: '2026-11-03', value: 1, note: 'From the note' }]);
   assert.equal(becauseFor(noted, { bullets: [{ text: 'From a bullet', metric_key: 'a' }] }), 'From the note');
   const plain = summarize(def('a', 'up_good'), [{ date: '2026-11-03', value: 1, note: '' }]);
-  assert.equal(becauseFor(plain, { milestones: [{ date: '2026-11-03', label: 'Launch', metricKey: null }] }), 'Launch');
+  assert.equal(becauseFor(plain, { milestones: [{ date: '2026-11-03', label: 'Launch', metricKey: 'a' }] }), 'Launch');
   assert.equal(becauseFor(plain, { milestones: [{ date: '2026-11-03', label: 'Other', metricKey: 'b' }] }), '');
 
   const geometry = chartGeometry([
@@ -273,4 +273,109 @@ test('the progress API follows the token model and the page is served with the C
   assert.doesNotMatch(html, /<script(?![^>]*\bsrc=)/);
   assert.doesNotMatch(html, /style=/);
   assert.match(await readFile('public/index.html', 'utf8'), /href="\/progress.html"/);
+});
+
+test('a milestone without a metric key is never a cause, on a tile or in the headline', () => {
+  const def = (key, direction) => ({ key, label: key, direction, unit: '' });
+  const issues = summarize(def('issues_open', 'down_good'), [{ date: '2026-11-02', value: 4, note: '' }, { date: '2026-11-03', value: 5, note: '' }]);
+  const shipped = summarize(def('prs_merged', 'up_good'), [{ date: '2026-11-02', value: 4, note: '' }, { date: '2026-11-03', value: 6, note: '' }]);
+  const milestones = [
+    { date: '2026-11-03', label: 'Moved to its own database', metricKey: null },
+    { date: '2026-11-03', label: 'Merge queue turned on', metricKey: 'prs_merged' },
+  ];
+  const because = (summary) => becauseFor(summary, { milestones });
+  assert.equal(because(issues), '');
+  assert.equal(because(shipped), 'Merge queue turned on');
+  const noted = summarize(def('issues_open', 'down_good'), [{ date: '2026-11-02', value: 4 }, { date: '2026-11-03', value: 5, note: 'Two new reports from the beta' }]);
+  assert.equal(becauseFor(noted, { milestones }), 'Two new reports from the beta');
+
+  const asked = headline({ summaries: [issues, shipped], latestDate: '2026-11-03', needs: { configured: true, count: 3 }, because });
+  assert.equal(asked.worst.key, 'issues_open');
+  assert.equal(asked.text, '3 items are waiting on you.');
+});
+
+test('fewer than two readings draw no sparkline, and the chart shows the one value and its date', () => {
+  const doc = fakeDocument();
+  const def = { key: 'restore_minutes', label: 'Restore time', question: 'How long does a restore take?', direction: 'down_good', unit: 'minutes' };
+  const one = [{ date: '2026-11-03', value: 42, note: 'First drill', rebuilt: false }];
+  const summary = summarize(def, one);
+  const node = tile(doc, summary, { series: one, from: '2026-10-05', to: '2026-11-03' });
+  const spark = byClass(node, 'spark')[0];
+  assert.deepEqual(spark.children, []);
+  assert.equal(byClass(node, 'tile-number')[0].textContent, '42');
+  assert.equal(byClass(node, 'tile-chip')[0].textContent, '');
+  const single = singleReading(doc, summary, one);
+  assert.equal(single.textContent, '42 minuteson Tuesday, November 3, 2026First drill');
+
+  const two = [...one, { date: '2026-11-04', value: 40, note: '' }];
+  const drawn = tile(doc, summarize(def, two), { series: two, from: '2026-10-06', to: '2026-11-04' });
+  assert.equal(byClass(drawn, 'spark-line').length, 1);
+});
+
+test('a hidden metric keeps recording, and removing a definition keeps its readings', async (t) => {
+  const db = await tempDb(t);
+  const progress = createProgressService(db);
+  const activity = createActivityService(db);
+  const backup = createBackupService(db);
+  progress.defineMetric('issues_open', { label: 'Open issues', direction: 'down_good' }, { actor: 'tester' });
+  assert.equal(progress.listDefs()[0].hidden, false);
+  assert.deepEqual(progress.defineMetric('issues_open', { hidden: true }).changed, ['hidden']);
+  assert.deepEqual(progress.defineMetric('issues_open', { hidden: true }).changed, []);
+  assert.throws(() => progress.defineMetric('issues_open', { hidden: 'yes' }), /true or false/);
+  assert.equal(progress.recordMetrics({ date: '2026-11-03', metrics: [{ key: 'issues_open', value: 5 }] }).created, 1);
+  assert.equal(progress.listDefs()[0].hidden, true);
+
+  const exported = backup.export();
+  assert.equal(exported.metricDefs[0].hidden, 1);
+  backup.restore(exported);
+  assert.equal(progress.listDefs()[0].hidden, true);
+
+  assert.deepEqual(progress.removeMetric('issues_open', { actor: 'tester' }), { removed: true, key: 'issues_open', readingsKept: 1 });
+  assert.deepEqual(progress.listDefs(), []);
+  assert.equal(progress.listMetrics({ keys: 'issues_open' }).length, 1);
+  assert.throws(() => progress.removeMetric('issues_open'), /not found/);
+  const removed = activity.list({ limit: 50 }).items.find((item) => item.type === 'metric.removed');
+  assert.deepEqual([removed.key, removed.label, removed.actor], ['issues_open', 'Open issues', 'tester']);
+  assert.equal(progress.defineMetric('issues_open', { label: 'Open issues' }).created, true);
+  assert.equal(progress.listMetrics({ keys: 'issues_open' }).length, 1);
+});
+
+test('a database made before the hidden column gains it on open', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'northstar-hidden-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const path = join(dir, 'northstar.db');
+  let db = openDatabase(path);
+  createProgressService(db).defineMetric('prs_merged', { label: 'PRs merged' });
+  db.exec('ALTER TABLE metric_defs DROP COLUMN hidden');
+  db.close();
+  db = openDatabase(path);
+  try {
+    assert.deepEqual(createProgressService(db).listDefs().map((def) => [def.key, def.hidden]), [['prs_merged', false]]);
+  } finally { db.close(); }
+});
+
+test('DELETE /api/progress/metric-defs/:key follows the token model', async (t) => {
+  const dataDir = await mkdtemp(join(tmpdir(), 'northstar-progress-remove-'));
+  const port = await freePort();
+  const child = await startServer(dataDir, port, { AUTH_DISABLED: 'false', API_TOKEN: '' });
+  t.after(async () => { await stopServer(child); await rm(dataDir, { recursive: true, force: true }); });
+  const base = `http://127.0.0.1:${port}`;
+  const send = (path, method = 'GET', body, headers = {}) => fetch(`${base}${path}`, {
+    method, headers: { ...headers, ...(body === undefined ? {} : { 'content-type': 'application/json' }) }, body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const setup = await send('/api/auth/setup', 'POST', { username: 'owner', password: 'correct horse battery staple' });
+  const owner = { cookie: setup.headers.get('set-cookie').split(';', 1)[0] };
+  const token = async (scope) => ({ authorization: `Bearer ${(await (await send('/api/api-tokens', 'POST', { name: scope, scope }, owner)).json()).token}` });
+  const reader = await token('read');
+  const writer = await token('write');
+  assert.equal((await send('/api/progress/metric-defs/issues_open', 'PUT', { label: 'Open issues', hidden: true }, writer)).status, 201);
+  assert.equal((await (await send('/api/progress/metric-defs', 'GET', undefined, reader)).json())[0].hidden, true);
+  await send('/api/progress/metrics', 'PUT', { date: '2026-11-03', metrics: [{ key: 'issues_open', value: 2 }] }, writer);
+  assert.equal((await send('/api/progress/metric-defs/issues_open', 'DELETE')).status, 401);
+  assert.equal((await send('/api/progress/metric-defs/issues_open', 'DELETE', undefined, reader)).status, 403);
+  const removed = await send('/api/progress/metric-defs/issues_open', 'DELETE', undefined, writer);
+  assert.equal(removed.status, 200);
+  assert.deepEqual(await removed.json(), { removed: true, key: 'issues_open', readingsKept: 1 });
+  assert.equal((await send('/api/progress/metric-defs/issues_open', 'DELETE', undefined, writer)).status, 404);
+  assert.equal((await (await send('/api/progress/metrics?keys=issues_open', 'GET', undefined, reader)).json()).length, 1);
 });

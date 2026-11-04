@@ -94,6 +94,10 @@ test('PostgreSQL migrates and stores progress: metrics, definitions, reports, mi
     const date = `20${String(Date.now() % 90 + 10)}-11-03`;
     progress.defineMetric('pg_merged', { label: 'Merged', direction: 'up_good', band: 'trust', question: 'How much merged?' });
     assert.deepEqual(progress.defineMetric('pg_merged', { label: 'Merged' }).changed, []);
+    assert.equal(progress.defineMetric('pg_hidden', { label: 'Hidden', hidden: true }).def.hidden, true);
+    progress.recordMetrics({ date, metrics: [{ key: 'pg_hidden', value: 1 }] });
+    assert.equal(progress.removeMetric('pg_hidden').readingsKept, 1);
+    assert.equal(progress.listMetrics({ keys: 'pg_hidden', from: date, to: date }).length, 1);
     const day = { date, metrics: [{ key: 'pg_merged', value: 2.5, note: 'Half', rebuilt: true }, { key: 'pg_queue', value: null }] };
     assert.equal(progress.recordMetrics(day).created, 2);
     assert.equal(progress.recordMetrics(day).unchanged, 2);

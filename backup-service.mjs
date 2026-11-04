@@ -80,7 +80,7 @@ function prepareRestoreStatements(db) {
     kanbanTag: db.prepare('INSERT INTO kanban_card_tags (card_id, name) VALUES (?, ?)'),
     projectChange: db.prepare('INSERT INTO project_changes (id, project_id, field, from_value, to_value, note, actor, changed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'),
     cardChange: db.prepare('INSERT INTO card_changes (id, card_id, kind, detail, actor, changed_at) VALUES (?, ?, ?, ?, ?, ?)'),
-    metricDefs: db.prepare('INSERT INTO metric_defs (key, label, unit, direction, band, question, starts_when, position, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'),
+    metricDefs: db.prepare('INSERT INTO metric_defs (key, label, unit, direction, band, question, starts_when, hidden, position, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'),
     metrics: db.prepare('INSERT INTO metrics (id, date, key, value, note, rebuilt, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'),
     reports: db.prepare('INSERT INTO reports (id, date, body, bullets, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'),
     milestones: db.prepare('INSERT INTO milestones (id, date, label, metric_key, created_at) VALUES (?, ?, ?, ?, ?)'),
@@ -129,7 +129,7 @@ function insertBackupRows(db, backup) {
   for (const row of backup.planningSessionProjects) insert.sessionProject.run(row.session_id, row.project_id, row.position, row.status, row.revealed ?? 0, row.final_impact, row.final_urgency, row.final_confidence, row.final_effort, row.move_comment ?? '', row.decided_at);
   for (const row of backup.planningVotes) insert.vote.run(row.id, row.session_id, row.project_id, row.voter_token, row.voter_name, row.impact, row.urgency, row.confidence, row.effort, row.updated_at);
   const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
-  for (const row of backup.metricDefs ?? []) insert.metricDefs.run(row.key, row.label, row.unit ?? '', row.direction ?? 'neutral', row.band ?? 'momentum', row.question ?? '', row.starts_when ?? '', row.position ?? 0, row.description ?? '', row.created_at ?? now, row.updated_at ?? now);
+  for (const row of backup.metricDefs ?? []) insert.metricDefs.run(row.key, row.label, row.unit ?? '', row.direction ?? 'neutral', row.band ?? 'momentum', row.question ?? '', row.starts_when ?? '', row.hidden ? 1 : 0, row.position ?? 0, row.description ?? '', row.created_at ?? now, row.updated_at ?? now);
   for (const row of backup.metrics ?? []) insert.metrics.run(row.id, row.date, row.key, row.value ?? null, row.note ?? '', row.rebuilt ? 1 : 0, row.updated_at ?? now);
   for (const row of backup.reports ?? []) insert.reports.run(row.id, row.date, row.body, row.bullets ?? '[]', row.created_at ?? now, row.updated_at ?? now);
   for (const row of backup.milestones ?? []) insert.milestones.run(row.id, row.date, row.label, row.metric_key ?? '', row.created_at ?? now);

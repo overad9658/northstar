@@ -480,6 +480,8 @@ function migrateProgress(db) {
     );
     INSERT OR IGNORE INTO progress_settings (id) VALUES (1);
   `);
+  // A hidden metric keeps recording but shows no tile.
+  ensureColumn(db, 'metric_defs', 'hidden', 'INTEGER NOT NULL DEFAULT 0 CHECK(hidden IN (0, 1))');
 }
 
 export function databaseConfig(env = process.env) {

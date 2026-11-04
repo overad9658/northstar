@@ -95,13 +95,15 @@ export function headline({ summaries, latestDate, needs = { configured: false, c
   return { text: sentences.join(' '), sentences, attention: true, worst };
 }
 
-// The one line that explains a tile's change: the reading's note, a report line, or a milestone that day.
+// The one line that explains a tile's change, only from sources tied to this metric: the reading's
+// note, a report line that names the metric, or a milestone that day with this metric's key.
+// A milestone without a key belongs to every chart, so it is a flag, never a cause.
 export function becauseFor(summary, { bullets = [], milestones = [] } = {}) {
   if (!summary.latest) return '';
   if (summary.latest.note) return summary.latest.note;
   const line = bullets.find((item) => item.metric_key === summary.key);
   if (line) return line.text;
-  const milestone = milestones.find((item) => item.date === summary.latest.date && (!item.metricKey || item.metricKey === summary.key));
+  const milestone = milestones.find((item) => item.date === summary.latest.date && item.metricKey === summary.key);
   return milestone ? milestone.label : '';
 }
 

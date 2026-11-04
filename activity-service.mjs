@@ -139,6 +139,7 @@ export function createActivityService(db) {
         const detail = JSON.parse(row.detail || '{}');
         const base = { at: isoTimestamp(row.at), actor: row.actor };
         if (row.kind === 'metrics') return { id: `metrics.recorded:${row.id}`, type: 'metrics.recorded', ...base, dates: detail.dates, keys: detail.keys, created: detail.created, updated: detail.updated };
+        if (row.kind === 'metric_def' && detail.deleted) return { id: `metric.removed:${row.id}`, type: 'metric.removed', ...base, key: row.subject, label: detail.label };
         if (row.kind === 'metric_def') return { id: `metric.defined:${row.id}`, type: 'metric.defined', ...base, key: row.subject, created: detail.created, fields: detail.fields };
         if (row.kind === 'report') {
           const type = detail.created ? 'report.created' : 'report.updated';

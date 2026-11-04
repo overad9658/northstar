@@ -191,6 +191,7 @@ export function createApi(db, { apiToken = process.env.API_TOKEN, tokenFailuresP
         } else if (path === '/metric-defs') {
           if (req.method === 'GET') return json(res, 200, progress.listDefs()), true;
         } else if (defMatch) {
+          if (req.method === 'DELETE') { const options = write(); return json(res, 200, progress.removeMetric(decodeURIComponent(defMatch[1]), options)), true; }
           if (req.method === 'PUT') {
             const options = write();
             const result = progress.defineMetric(decodeURIComponent(defMatch[1]), await readJson(req), options);

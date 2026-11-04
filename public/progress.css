@@ -126,6 +126,9 @@
 .flag.active .flag-cloth,.flag:hover .flag-cloth { transform:scale(1.4); }
 .focus-tip { position:absolute; }
 .focus-empty { margin:24px 0; color:var(--muted); }
+.focus-single { margin:20px 0 8px; display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 12px; color:var(--muted); font-size:14px; }
+.focus-single strong { color:var(--ink); font-size:34px; font-weight:650; font-variant-numeric:tabular-nums; }
+.focus-single .tip-note { flex-basis:100%; }
 .strip { margin:14px 0 0; padding:12px 0 0; border-top:1px solid var(--grid); list-style:none; display:flex; flex-wrap:wrap; gap:8px 22px; font-size:13px; }
 .strip-item { display:flex; gap:8px; align-items:baseline; border-radius:6px; }
 .strip-item time { color:var(--muted); font-size:12px; font-variant-numeric:tabular-nums; white-space:nowrap; }

@@ -261,7 +261,7 @@ curl -X PUT http://localhost:3000/api/kanban/cards/7 \
 
 Event types: `project.created`, `project.moved`, `project.status`, `project.archived`,
 `project.restored`, `project.team`, `project.capacity`, `planning.decided`, `card.created`,
-`card.moved`, `card.note`, `metrics.recorded`, `metric.defined`, `report.created`, `report.updated`,
+`card.moved`, `card.note`, `metrics.recorded`, `metric.defined`, `metric.removed`, `report.created`, `report.updated`,
 `milestone.added`, `milestone.updated`, `milestone.deleted`. Field lists are in the README.
 
 ```text
@@ -286,7 +286,8 @@ idempotent: repeating it changes nothing and adds nothing to the activity feed.
 | `GET` | `/api/progress/metrics` | token endpoint | Readings, sorted by key then date. `?keys=a,b`, `?from=`, `?to=` (inclusive). At most 10,000 rows, the newest. |
 | `PUT` | `/api/progress/metrics` | admin or write token | Record readings: `{ "date", "metrics": [{ "key", "value", "note"?, "rebuilt"? }] }` (1–1000). An entry may carry its own `date`. `value` is a number or `null` (no reading); `rebuilt: true` marks a value estimated from history. Each entry replaces the stored row for its date and key. Returns `{ created, updated, unchanged, metrics }`. |
 | `GET` | `/api/progress/metric-defs` | token endpoint | Metric definitions in `position` order. |
-| `PUT` | `/api/progress/metric-defs/:key` | admin or write token | Create (`201`) or update (`200`) a definition: `label`, `unit`, `direction` (`up_good`, `down_good`, `neutral`), `band` (`momentum`, `health`, `trust`), `question` (the line its tile answers), `startsWhen`, `position`, `description`. Fields left out keep their values. |
+| `PUT` | `/api/progress/metric-defs/:key` | admin or write token | Create (`201`) or update (`200`) a definition: `label`, `unit`, `direction` (`up_good`, `down_good`, `neutral`), `band` (`momentum`, `health`, `trust`), `question` (the line its tile answers), `startsWhen`, `hidden` (keeps recording, shows no tile), `position`, `description`. Fields left out keep their values. |
+| `DELETE` | `/api/progress/metric-defs/:key` | admin or write token | Remove a definition: `{ removed, key, readingsKept }`. Its readings stay, so defining the key again brings its history back. `404` when there is no definition. |
 | `GET` | `/api/progress/reports` | token endpoint | Report dates, newest first, with `title` (the first line) and `bullets`. `?from=`, `?to=`. |
 | `GET` | `/api/progress/reports/:date` | token endpoint | One report: `{ date, markdown, bullets }`. |
 | `PUT` | `/api/progress/reports/:date` | admin or write token | Create (`201`) or replace (`200`) a report: `{ "markdown", "bullets"?: [{ "text", "metric_key"? }] }`. Bullets left out keep the stored ones. |

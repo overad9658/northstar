@@ -51,7 +51,7 @@ test('every tool works against a running Northstar with a write token', async (t
   const { client, call } = await connect(t, { baseUrl, token: writeToken });
 
   const names = (await client.listTools()).tools.map((tool) => tool.name).sort();
-  assert.deepEqual(names, ['add_card_note', 'add_milestone', 'apply_view', 'archive_card', 'audit_board', 'decide_card', 'define_metric', 'export_board', 'export_progress', 'get_activity', 'get_board', 'get_card_by_key', 'get_metrics', 'get_needs_you', 'get_project', 'get_report', 'list_cards', 'list_milestones', 'list_projects', 'list_reports', 'list_teams', 'list_views', 'move_card', 'move_project', 'record_metrics', 'restore_card', 'set_needs_you', 'set_team', 'status_export', 'upsert_card', 'upsert_project', 'upsert_report']);
+  assert.deepEqual(names, ['add_card_note', 'add_milestone', 'apply_view', 'archive_card', 'audit_board', 'decide_card', 'define_metric', 'export_board', 'export_progress', 'get_activity', 'get_board', 'get_card_by_key', 'get_metrics', 'get_needs_you', 'get_project', 'get_report', 'list_cards', 'list_milestones', 'list_projects', 'list_reports', 'list_teams', 'list_views', 'move_card', 'move_project', 'record_metrics', 'remove_metric', 'restore_card', 'set_needs_you', 'set_team', 'status_export', 'upsert_card', 'upsert_project', 'upsert_report']);
 
   const team = await call('set_team', { name: 'Platform Ops', capacity: 4 });
   assert.equal(team.isError, false, team.text);
@@ -154,7 +154,7 @@ test('a read token keeps read tools and drops write tools after the first refusa
   assert.equal(changed, true);
   const names = (await client.listTools()).tools.map((tool) => tool.name);
   assert.ok(['list_projects', 'audit_board', 'export_board'].every((name) => names.includes(name)));
-  assert.ok(!names.some((name) => ['upsert_project', 'move_project', 'upsert_card', 'move_card', 'add_card_note', 'decide_card', 'set_team', 'archive_card', 'restore_card', 'record_metrics', 'define_metric', 'upsert_report', 'add_milestone', 'set_needs_you'].includes(name)));
+  assert.ok(!names.some((name) => ['upsert_project', 'move_project', 'upsert_card', 'move_card', 'add_card_note', 'decide_card', 'set_team', 'archive_card', 'restore_card', 'record_metrics', 'define_metric', 'upsert_report', 'add_milestone', 'set_needs_you', 'remove_metric'].includes(name)));
   assert.ok(['get_metrics', 'get_report', 'list_reports', 'list_milestones', 'get_needs_you', 'export_progress'].every((name) => names.includes(name)));
 
   const declared = await connect(t, { baseUrl, token: readToken, scope: 'read' });
@@ -298,4 +298,18 @@ test('progress: metrics, definitions, reports, milestones and the needs-you colu
   assert.equal(one.text, (await call('export_progress')).text);
   const activity = (await call('get_activity', { limit: 50 })).value.items.map((item) => item.type);
   for (const type of ['metrics.recorded', 'metric.defined', 'report.created', 'milestone.added']) assert.ok(activity.includes(type), type);
+});
+
+test('remove_metric removes a definition, keeps its readings, and repeating it changes nothing', async (t) => {
+  const { baseUrl, token } = await startNorthstar(t);
+  const { call } = await connect(t, { baseUrl, token: await token('Progress agent', 'write') });
+  assert.equal((await call('define_metric', { key: 'issues_open', label: 'Open issues', hidden: true })).value.def.hidden, true);
+  await call('record_metrics', { date: '2026-11-03', metrics: [{ key: 'issues_open', value: 3 }] });
+  const removed = await call('remove_metric', { key: 'issues_open' });
+  assert.deepEqual(removed.value, { removed: true, key: 'issues_open', readingsKept: 1 }, removed.text);
+  assert.deepEqual((await call('remove_metric', { key: 'issues_open' })).value, { removed: false, key: 'issues_open' });
+  const left = await call('get_metrics', { keys: ['issues_open'] });
+  assert.deepEqual([left.value.defs, left.value.metrics.length], [[], 1]);
+  assert.match((await call('remove_metric', { key: 'Not A Slug' })).text, /^Invalid input/);
+  assert.ok((await call('get_activity', { limit: 20 })).value.items.some((item) => item.type === 'metric.removed'));
 });

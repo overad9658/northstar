@@ -69,7 +69,7 @@ const rangeSql = ({ from, to }, column = 'date') => ({
 });
 
 const presentMetric = (row) => ({ date: row.date, key: row.key, value: row.value === null ? null : Number(row.value), note: row.note, rebuilt: Boolean(row.rebuilt), updatedAt: row.updatedAt });
-const presentDef = (row) => ({ key: row.key, label: row.label, unit: row.unit, direction: row.direction, band: row.band, question: row.question, startsWhen: row.startsWhen, position: Number(row.position), description: row.description, updatedAt: row.updatedAt });
+const presentDef = (row) => ({ key: row.key, label: row.label, unit: row.unit, direction: row.direction, band: row.band, question: row.question, startsWhen: row.startsWhen, hidden: Boolean(row.hidden), position: Number(row.position), description: row.description, updatedAt: row.updatedAt });
 const presentMilestone = (row) => ({ id: Number(row.id), date: row.date, label: row.label, metricKey: row.metricKey || null, createdAt: row.createdAt });
 const parseBullets = (text) => { try { return JSON.parse(text || '[]'); } catch { return []; } };
 const presentReport = (row) => ({ date: row.date, markdown: row.body, bullets: parseBullets(row.bullets), createdAt: row.createdAt, updatedAt: row.updatedAt });
@@ -95,7 +95,7 @@ export function reportTitle(markdown) {
 
 export function createProgressService(db) {
   const metricColumns = 'date, key, value, note, rebuilt, updated_at AS updatedAt';
-  const defColumns = 'key, label, unit, direction, band, question, starts_when AS startsWhen, position, description, updated_at AS updatedAt';
+  const defColumns = 'key, label, unit, direction, band, question, starts_when AS startsWhen, hidden, position, description, updated_at AS updatedAt';
   const milestoneColumns = 'id, date, label, metric_key AS metricKey, created_at AS createdAt';
   const log = (kind, subject, detail, actor) => db.prepare('INSERT INTO progress_changes (kind, subject, detail, actor) VALUES (?, ?, ?, ?)')
     .run(kind, subject, JSON.stringify(detail), String(actor || '').slice(0, 80));
@@ -175,6 +175,7 @@ export function createProgressService(db) {
         if (!DIRECTIONS.includes(direction)) throw new ProgressError(400, `direction must be one of: ${DIRECTIONS.join(', ')}.`);
         const band = input.band === undefined ? (current?.band ?? 'momentum') : String(input.band);
         if (!BANDS.includes(band)) throw new ProgressError(400, `band must be one of: ${BANDS.join(', ')}.`);
+        if (input.hidden !== undefined && typeof input.hidden !== 'boolean') throw new ProgressError(400, 'hidden must be true or false.');
         let position = current ? Number(current.position) : db.prepare('SELECT COALESCE(MAX(position) + 1, 0) AS next FROM metric_defs').get().next;
         if (input.position !== undefined) {
           position = input.position;
@@ -187,18 +188,33 @@ export function createProgressService(db) {
           question: input.question === undefined ? (current?.question ?? '') : text(input.question, 'question', LIMITS.question),
           startsWhen: input.startsWhen === undefined ? (current?.startsWhen ?? '') : text(input.startsWhen, 'startsWhen', LIMITS.startsWhen),
           description: input.description === undefined ? (current?.description ?? '') : text(input.description, 'description', LIMITS.description),
+          hidden: input.hidden === undefined ? Boolean(current?.hidden) : input.hidden,
         };
-        const fields = current ? Object.keys(next).filter((name) => next[name] !== (name === 'position' ? Number(current.position) : current[name])) : Object.keys(next);
+        const stored = (name) => (name === 'position' ? Number(current.position) : name === 'hidden' ? Boolean(current.hidden) : current[name]);
+        const fields = current ? Object.keys(next).filter((name) => next[name] !== stored(name)) : Object.keys(next);
         if (current && !fields.length) return { created: false, changed: [], def: presentDef(current) };
         if (current) {
-          db.prepare('UPDATE metric_defs SET label = ?, unit = ?, direction = ?, band = ?, question = ?, starts_when = ?, position = ?, description = ?, updated_at = CURRENT_TIMESTAMP WHERE key = ?')
-            .run(next.label, next.unit, next.direction, next.band, next.question, next.startsWhen, next.position, next.description, key);
+          db.prepare('UPDATE metric_defs SET label = ?, unit = ?, direction = ?, band = ?, question = ?, starts_when = ?, hidden = ?, position = ?, description = ?, updated_at = CURRENT_TIMESTAMP WHERE key = ?')
+            .run(next.label, next.unit, next.direction, next.band, next.question, next.startsWhen, next.hidden ? 1 : 0, next.position, next.description, key);
         } else {
-          db.prepare('INSERT INTO metric_defs (key, label, unit, direction, band, question, starts_when, position, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-            .run(key, next.label, next.unit, next.direction, next.band, next.question, next.startsWhen, next.position, next.description);
+          db.prepare('INSERT INTO metric_defs (key, label, unit, direction, band, question, starts_when, hidden, position, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+            .run(key, next.label, next.unit, next.direction, next.band, next.question, next.startsWhen, next.hidden ? 1 : 0, next.position, next.description);
         }
         log('metric_def', key, { created: !current, fields }, actor);
         return { created: !current, changed: current ? fields : [], def: presentDef(getDef(key)) };
+      });
+    },
+
+    // Removes a definition. Its readings stay, so defining the key again brings its history back.
+    removeMetric(keyValue, { actor = '' } = {}) {
+      const key = metricKey(keyValue);
+      return transaction(db, () => {
+        const current = getDef(key);
+        if (!current) throw new ProgressError(404, 'Metric definition not found.');
+        db.prepare('DELETE FROM metric_defs WHERE key = ?').run(key);
+        log('metric_def', key, { deleted: true, label: current.label }, actor);
+        const readings = db.prepare('SELECT COUNT(*) AS count FROM metrics WHERE key = ?').get(key).count;
+        return { removed: true, key, readingsKept: Number(readings) };
       });
     },
 

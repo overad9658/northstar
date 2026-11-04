@@ -261,13 +261,27 @@ export const tools = [
   {
     name: 'define_metric',
     write: true,
-    description: 'Create or update a metric definition by key. band (momentum, health or trust) places its tile; question is the one line the tile answers; direction (up_good, down_good, neutral) colors its change; startsWhen says when an unmeasured metric starts. Fields left out keep their values.',
+    description: 'Create or update a metric definition by key. band (momentum, health or trust) places its tile; question is the one line the tile answers; direction (up_good, down_good, neutral) colors its change; startsWhen says when an unmeasured metric starts; hidden=true keeps it recording but shows no tile. Fields left out keep their values.',
     inputSchema: object({
       key: slug, label: text(80, 1), unit: text(20), direction: { type: 'string', enum: ['up_good', 'down_good', 'neutral'] },
-      band: { type: 'string', enum: ['momentum', 'health', 'trust'] }, question: text(120), startsWhen: text(120),
+      band: { type: 'string', enum: ['momentum', 'health', 'trust'] }, question: text(120), startsWhen: text(120), hidden: { type: 'boolean' },
       position: { type: 'integer', minimum: 0, maximum: 9999 }, description: text(500),
     }, ['key']),
     run: (api, { key, ...def }) => api.request('PUT', `/api/progress/metric-defs/${encodeURIComponent(key)}`, { body: def }),
+  },
+  {
+    name: 'remove_metric',
+    write: true,
+    description: 'Remove a metric definition by key. Its readings stay, so defining the key again brings its history back. Removing a metric that has no definition changes nothing.',
+    inputSchema: object({ key: slug }, ['key']),
+    async run(api, { key }) {
+      try {
+        return await api.request('DELETE', `/api/progress/metric-defs/${encodeURIComponent(key)}`);
+      } catch (error) {
+        if (error.status === 404) return { removed: false, key };
+        throw error;
+      }
+    },
   },
   {
     name: 'get_metrics',

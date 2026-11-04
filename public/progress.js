@@ -1,7 +1,7 @@
 import { requestJson, showToast } from './browser-utils.js';
 import { renderMarkdown } from './markdown.js';
 import { BANDS, addDays, becauseFor, chartGeometry, formatNumber, headline, longDate, nearestPoint, seriesFor, shortDate, summarize, windowed } from './progress-model.js';
-import { dataTable, el, focusChart, headlineNode, milestoneStrip, needsPanel, reportItem, tile } from './progress-view.js';
+import { dataTable, el, focusChart, headlineNode, milestoneStrip, needsPanel, reportItem, singleReading, tile } from './progress-view.js';
 
 const app = document.getElementById('progress-app');
 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -87,7 +87,7 @@ function wireTile(node) {
   node.addEventListener('blur', () => linkHighlight(key, false));
   const spark = node.querySelector('.spark');
   const entry = state.sparks.get(key);
-  if (!spark || !entry?.summary.latest) return;
+  if (!spark?.querySelector('.crosshair') || !entry?.summary.latest) return;
   spark.addEventListener('pointermove', (event) => {
     const box = spark.getBoundingClientRect();
     const geometry = entry.geometry;
@@ -187,10 +187,12 @@ function renderFocus() {
       button.addEventListener('click', () => { state.range = range.days; renderFocus(); section.querySelector('.focus-svg')?.focus(); });
       return button;
     }));
-  const hasEstimates = series.some((item) => item.rebuilt);
+  // The legend explains marks on a line; with fewer than two readings there is no line to explain.
+  const drawn = series.filter((item) => item.value !== null).length >= 2;
+  const hasEstimates = drawn && series.some((item) => item.rebuilt);
   const legend = el(document, 'p', { class: 'focus-legend' },
     hasEstimates ? el(document, 'span', { class: 'legend-estimated' }, 'Estimated from history') : null,
-    milestones.length ? el(document, 'span', { class: 'legend-flag' }, 'Milestone') : null);
+    drawn && milestones.length ? el(document, 'span', { class: 'legend-flag' }, 'Milestone') : null);
   const plot = el(document, 'div', { class: 'focus-plot' });
   const head = el(document, 'header', { class: 'focus-head' },
     el(document, 'div', {}, el(document, 'h2', { id: 'focus-title' }, summary.def.label),
@@ -202,6 +204,10 @@ function renderFocus() {
   const height = width < 520 ? 220 : 300;
   if (!summary.latest) {
     plot.appendChild(el(document, 'p', { class: 'focus-empty' }, `Not measured yet.${summary.def.startsWhen ? ` Starts when ${summary.def.startsWhen}.` : ''}`));
+    return;
+  }
+  if (series.filter((item) => item.value !== null).length < 2) {
+    plot.appendChild(singleReading(document, summary, series.length ? series : summary.series));
     return;
   }
   const from = state.range ? addDays(state.latestDate, -(state.range - 1)) : summary.series[0]?.date;
@@ -323,11 +329,12 @@ async function load() {
     ]);
     Object.assign(state, { defs, metrics, milestones, reports, needs, user });
     state.latestDate = metrics.filter((item) => item.value !== null).map((item) => item.date).sort().at(-1) || '';
-    state.summaries = defs.map((def) => summarize(def, seriesFor(metrics, def.key)));
+    // A hidden metric keeps recording but has no tile, no chart and no part in the headline.
+    state.summaries = defs.filter((def) => !def.hidden).map((def) => summarize(def, seriesFor(metrics, def.key)));
     document.getElementById('progress-asof').textContent = state.latestDate ? longDate(state.latestDate) : '';
     renderHeadline();
     renderNeeds();
-    if (!defs.length) renderEmpty();
+    if (!state.summaries.length) renderEmpty();
     else {
       renderTiles();
       selectMetric(state.summaries.find((item) => item.measured)?.key ?? state.summaries[0].key);

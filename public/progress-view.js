@@ -41,6 +41,8 @@ export function sparkline(doc, summary, { series, from, to, width = 160, height 
     root.appendChild(svg(doc, 'line', { class: 'spark-empty', x1: 1, x2: width - 1, y1: height - 4, y2: height - 4 }));
     return root;
   }
+  // One reading is not a trend: a lone dot at the edge looks broken, so the space stays empty.
+  if (series.filter((item) => item.value !== null).length < 2) return root;
   const geometry = chartGeometry(series, box);
   root.appendChild(svg(doc, 'defs', {}, svg(doc, 'linearGradient', { id, x1: 0, y1: 0, x2: 0, y2: 1 },
     svg(doc, 'stop', { class: 'stop-top', offset: '0' }), svg(doc, 'stop', { class: 'stop-bottom', offset: '1' }))));
@@ -161,6 +163,16 @@ export function focusChart(doc, summary, { series, milestones = [], width, heigh
   root.appendChild(svg(doc, 'line', { class: 'crosshair', x1: 0, x2: 0, y1: box.top, y2: geometry.base }));
   root.appendChild(svg(doc, 'circle', { class: 'crosshair-dot', cx: 0, cy: 0, r: 4 }));
   return { node: root, geometry };
+}
+
+// Fewer than two readings make no line: the chart shows the one value and its date instead.
+export function singleReading(doc, summary, series) {
+  const point = [...series].reverse().find((item) => item.value !== null) ?? summary.latest;
+  return el(doc, 'p', { class: 'focus-single' },
+    el(doc, 'strong', {}, formatNumber(point.value, summary.def.unit)),
+    el(doc, 'span', {}, `on ${longDate(point.date)}`),
+    point.rebuilt ? el(doc, 'span', { class: 'tip-note' }, 'Estimated from history') : null,
+    point.note ? el(doc, 'span', { class: 'tip-note' }, point.note) : null);
 }
 
 // Milestones in the chart's range, in date order, each in full.

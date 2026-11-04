@@ -30,6 +30,8 @@ const defs = [
   ['restore_drill', { label: 'Restore time', unit: 'minutes', direction: 'down_good', band: 'health', question: 'How long does a restore take?', startsWhen: 'the first restore drill runs' }],
   ['findings_open', { label: 'Security findings', direction: 'down_good', band: 'trust', question: 'How many security findings are open?' }],
   ['mistakes', { label: 'Mistakes that reached people', direction: 'down_good', band: 'trust', question: 'How many mistakes reached people this week?' }],
+  ['docs_written', { label: 'Docs written', direction: 'up_good', band: 'momentum', question: 'How many pages of docs did we write?' }],
+  ['raw_events', { label: 'Raw events', direction: 'neutral', band: 'health', question: 'How many raw events came in?', hidden: true }],
   ['review_wait', { label: 'Review wait', unit: 'days', direction: 'down_good', band: 'trust', question: 'How long do changes wait for review?' }],
 ];
 defs.forEach(([key, def], position) => progress.defineMetric(key, { ...def, position }, { actor }));
@@ -57,7 +59,10 @@ for (let index = days - 1; index >= 0; index -= 1) {
   const readings = [
     ['shipped_total', shipped], ['queue_open', queue], ['unreleased', unreleased], ['alerts_open', alerts],
     ['targets_met', Number(targets.toFixed(1))], ['findings_open', findings], ['review_wait', Number(wait.toFixed(1))],
+    ['raw_events', 1000 + day * 3],
   ];
+  // Docs started being counted on the last day, so there is only one reading.
+  if (index === 0) readings.push(['docs_written', 3]);
   // Mistakes are counted weekly, on Mondays; there was no count before day 30.
   if (new Date(`${date}T00:00:00Z`).getUTCDay() === 1 && day > 30) readings.push(['mistakes', Math.max(0, 3 - Math.floor(day / 30) + jitter(1))]);
   // Two days with no alert reading while the monitor moved.
