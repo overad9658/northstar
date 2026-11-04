@@ -13,6 +13,7 @@ import { createViewsService, ViewError } from './views-service.mjs';
 import { ActivityError, createActivityService } from './activity-service.mjs';
 import { createEventsService } from './events-service.mjs';
 import { createProgressService, ProgressError } from './progress-service.mjs';
+import { buildSequence, createSequenceService } from './sequence-service.mjs';
 import { createFailureLimiter, positiveInteger } from './rate-limit.mjs';
 import { readFile } from 'node:fs/promises';
 
@@ -47,7 +48,8 @@ export function createApi(db, { apiToken = process.env.API_TOKEN, tokenFailuresP
   const views = createViewsService(db);
   const activity = createActivityService(db);
   const progress = createProgressService(db);
-  const events = createEventsService({ projects, kanban, teams });
+  const sequence = createSequenceService(db, kanban);
+  const events = createEventsService({ projects, kanban, teams, sequence });
   const dataApi = createDataApi(db, projects, { apiToken });
   const requireUser = (req) => { const user = auth.userForRequest(req); if (!user) throw new AuthError(401, 'Authentication is required.'); return user; };
   const requireAdmin = (req) => { const user = requireUser(req); if (user.role !== 'admin') throw new AuthError(403, 'Admin access is required.'); return user; };
@@ -161,7 +163,8 @@ export function createApi(db, { apiToken = process.env.API_TOKEN, tokenFailuresP
       const teamsPath = /^\/api\/(?:teams(?:\/\d+)?|capacity)$/.test(url.pathname);
       const viewsPath = /^\/api\/views(?:\/\d+)?$/.test(url.pathname);
       const progressPath = url.pathname === '/api/progress' || url.pathname.startsWith('/api/progress/');
-      const tokenPath = kanbanPath || projectsPath || teamsPath || viewsPath || progressPath || ['/api/activity', '/api/events', '/api/version'].includes(url.pathname);
+      const sequencePath = ['/api/sequence', '/api/sequence/runs', '/api/sequence/settings'].includes(url.pathname);
+      const tokenPath = kanbanPath || projectsPath || teamsPath || viewsPath || progressPath || sequencePath || ['/api/activity', '/api/events', '/api/version'].includes(url.pathname);
       const tokenAccess = tokenPath ? bearerAccess : null;
       if (tokenAccess?.scope === 'read' && req.method !== 'GET') throw new AuthError(403, 'This API token is read-only.');
       // Tokens belong to no team: a write token acts as an admin, a read token as a read-only viewer.
@@ -277,6 +280,30 @@ export function createApi(db, { apiToken = process.env.API_TOKEN, tokenFailuresP
         res.setHeader('cache-control', 'no-store');
         const query = { since: url.searchParams.get('since') ?? undefined, limit: url.searchParams.get('limit') ?? undefined };
         return json(res, 200, activity.list(query, { includeHidden: user.role === 'admin' })), true;
+      }
+      // The sequence reads every board the viewer can see; a run writes cards as a card update would.
+      if (url.pathname === '/api/sequence') {
+        if (req.method !== 'GET') return json(res, 405, { error: 'Method not allowed.' }), true;
+        res.setHeader('cache-control', 'no-store');
+        const visibleTeams = teams.list({ includeHidden: user.role === 'admin' }).map(({ id, name }) => ({ id, name, includeHidden: canSeeHiddenOn(id) }));
+        const board = kanban.listAll({ teams: visibleTeams, archived: 'include' });
+        const columnNames = new Map(board.columns.map((column) => [column.key, column.name]));
+        const cards = board.cards.map((card) => ({ ...card, columnName: columnNames.get(card.columnKey) ?? '' }));
+        const [latest = null, previous = null] = sequence.latestRuns();
+        const mine = ['1', 'true'].includes(url.searchParams.get('mine') ?? '');
+        return json(res, 200, { ...buildSequence({ cards, latest, previous, viewer: user.username, mine }), designUrl: sequence.settings().designUrl }), true;
+      }
+      if (url.pathname === '/api/sequence/settings') {
+        res.setHeader('cache-control', 'no-store');
+        if (req.method === 'GET') return json(res, 200, sequence.settings()), true;
+        if (req.method === 'PUT') { requireUserAdmin(); return json(res, 200, sequence.saveSettings(await readJson(req))), true; }
+        return json(res, 405, { error: 'Method not allowed.' }), true;
+      }
+      if (url.pathname === '/api/sequence/runs') {
+        if (req.method !== 'POST') return json(res, 405, { error: 'Method not allowed.' }), true;
+        const input = await readJson(req, 500_000);
+        const result = sequence.recordRun(input, { canEdit: (card) => { requireBoardMember(user, card.teamId); requireVisibleCard(card.id, card.teamId); } });
+        return json(res, 201, result), true;
       }
       if (url.pathname === '/api/kanban') {
         const archived = url.searchParams.get('archived') ?? undefined;

@@ -100,7 +100,7 @@ test('change events reach open pages after token writes, hide hidden projects fr
 
   // A reconnect with a stale Last-Event-ID is told to refresh everything at once.
   const resumed = await open({ ...viewer, 'last-event-id': String(viewerVersion) });
-  assert.deepEqual((await resumed.next()).kinds, ['projects', 'kanban', 'teams']);
+  assert.deepEqual((await resumed.next()).kinds, ['projects', 'kanban', 'teams', 'sequence']);
   const current = await open({ ...viewer, 'last-event-id': String(viewerEvent.version) });
   assert.equal(await current.next(400), null);
 });

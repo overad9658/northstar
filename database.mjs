@@ -305,6 +305,26 @@ function createRelatedTables(db) {
   // rank is a card's place in a sequence across boards (NULL = unranked); position stays its order inside a column.
   ensureColumn(db, 'kanban_cards', 'rank', 'INTEGER');
   ensureColumn(db, 'kanban_cards', 'objective', "TEXT NOT NULL DEFAULT ''");
+  // Why a card sits where it does in the sequence, when it can start, and what its chain reaches.
+  ensureColumn(db, 'kanban_cards', 'rank_reason', "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, 'kanban_cards', 'reason_full', "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, 'kanban_cards', 'wait_until', 'TEXT');
+  ensureColumn(db, 'kanban_cards', 'outcome', "TEXT NOT NULL DEFAULT ''");
+  // One row per sequencing pass: its scores and the order it set ([{ cardId, rank, reason }]).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS sequence_runs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      at TEXT NOT NULL,
+      skill_version TEXT NOT NULL DEFAULT '',
+      scores TEXT NOT NULL DEFAULT '{}',
+      items TEXT NOT NULL DEFAULT '[]'
+    );
+    CREATE INDEX IF NOT EXISTS idx_sequence_runs_at ON sequence_runs(at, id);
+    CREATE TABLE IF NOT EXISTS page_settings (
+      key TEXT PRIMARY KEY CHECK(length(key) BETWEEN 1 AND 80),
+      value TEXT NOT NULL DEFAULT ''
+    );
+  `);
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_kanban_cards_rank ON kanban_cards(rank, id);
     CREATE TABLE IF NOT EXISTS kanban_card_blockers (

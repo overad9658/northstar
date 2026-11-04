@@ -219,6 +219,33 @@ export const tools = [
     run: (api, { ranks }) => api.request('PUT', '/api/kanban/cards/ranks', { body: { ranks } }),
   },
   {
+    name: 'record_sequence_run',
+    write: true,
+    description: 'Record one sequencing pass: every listed card gets its rank and reasons in one transaction, and the run is stored so the next pass shows what moved. items: [{id, rank, rankReason?, reasonFull?, waitUntil?, outcome?}]. rank null leaves a card out of the order (listed for its owner). rankReason is one line (≤80), reasonFull ≤300, waitUntil an ISO time before which the card waits on the clock, outcome what its chain reaches (≤200). Fields left out keep their values. scores: {refuted?, coverage?, violations?, obsolete?} as numbers. A bad item or a card you cannot edit fails the whole run.',
+    inputSchema: object({
+      skillVersion: text(40, 1),
+      scores: object({ refuted: { type: 'number' }, coverage: { type: 'number' }, violations: { type: 'number' }, obsolete: { type: 'number' } }),
+      items: { type: 'array', minItems: 1, maxItems: 1000, items: object({
+        id, rank: { type: ['integer', 'null'], minimum: 0, maximum: 1_000_000 }, rankReason: text(80), reasonFull: text(300),
+        waitUntil: { type: ['string', 'null'], maxLength: 40 }, outcome: text(200),
+      }, ['id', 'rank']) },
+    }, ['skillVersion', 'items']),
+    run: (api, body) => api.request('POST', '/api/sequence/runs', { body }),
+  },
+  {
+    name: 'get_sequence',
+    description: 'The sequence: ranked, open cards in order (Done columns and archived cards left out), each with its owner, its step now (next step, else title), why it sits there, whether it waits on a time, the chain of cards it unblocks, what it reaches and how far the last pass moved it. Also the latest run, each person\'s count of steps, the links between ranked cards, and cards left out of the order. mine=true keeps only the caller\'s own steps.',
+    inputSchema: object({ mine: { type: 'boolean' } }),
+    run: (api, { mine }) => api.request('GET', '/api/sequence', { query: mine ? { mine: 'true' } : {} }),
+  },
+  {
+    name: 'set_sequence_design',
+    write: true,
+    description: 'Set the link to the Sequence page\'s design file, shown as a small "Design" link in its footer. url must be https; an empty url removes the link.',
+    inputSchema: object({ url: text(2048) }, ['url']),
+    run: (api, { url }) => api.request('PUT', '/api/sequence/settings', { body: { designUrl: url } }),
+  },
+  {
     name: 'archive_card',
     write: true,
     description: 'Archive a kanban card: it leaves the board but keeps its history and can be restored.',

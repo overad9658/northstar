@@ -44,7 +44,8 @@ COPY package.json \
     events-service.mjs \
     kanban-service.mjs \
     views-service.mjs \
-    progress-service.mjs ./
+    progress-service.mjs \
+    sequence-service.mjs ./
 COPY public ./public
 COPY docs/*.md ./docs/
 COPY mcp/README.md ./mcp/README.md

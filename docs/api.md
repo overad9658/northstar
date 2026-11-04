@@ -254,6 +254,10 @@ Optional card fields: `description`, `assignee`, `externalUrl`, `nextStep`, `dec
 - `objective` is short text (at most 300 characters).
 - `blockedBy` is a list of other card ids (at most 50). Sending it replaces the stored list; a
   card cannot block itself, and deleting a card removes it from every list it was on.
+- `rankReason` is one line (at most 80 characters): why the card sits where it does. `reasonFull`
+  (at most 300) is the longer reason. `waitUntil` is an ISO date and time before which the card
+  waits on the clock, or null. `outcome` (at most 200) is what the card's chain of work reaches.
+  A sequencing pass usually sets these; see [Sequence](#sequence).
 
 ```sh
 curl -X PUT http://localhost:3000/api/kanban/cards/7 \
@@ -313,6 +317,25 @@ idempotent: repeating it changes nothing and adds nothing to the activity feed.
 
 The full backup (`GET /api/backup`) includes the progress tables. Restoring a backup made before
 they existed leaves the current progress data in place.
+
+## Sequence
+
+The order work happens in, across every board. A sequencing pass (usually an agent, through MCP)
+ranks cards and records a run; the Sequence page shows the latest order;
+[docs/sequence-page.md](https://github.com/tsanford01/northstar/blob/main/docs/sequence-page.md)
+explains it. Only ranked, open cards are in the order: archived cards and cards in a column named
+Done drop out.
+
+| Method | Path | Auth | Purpose |
+| --- | --- | --- | --- |
+| `GET` | `/api/sequence` | token endpoint | The order: `rows` (place, card, owner, `now` step, reasons, `waiting`, `then` chain of cards it unblocks, `reaches`, `moved` since the previous run), `queue` (steps per person), `objectives`, `links` (ranked card → ranked card it unblocks), `fyi` (cards a run left unranked), the latest `run` and `designUrl`. `?mine=true` keeps the caller's own steps (by assignee = username). |
+| `POST` | `/api/sequence/runs` | board member of each card | Record a run: `{ "skillVersion", "scores"?: { "refuted"?, "coverage"?, "violations"?, "obsolete"? }, "items": [{ "id", "rank", "rankReason"?, "reasonFull"?, "waitUntil"?, "outcome"? }] }` (1–1000 items). Every card is updated in one transaction and the run is stored; any bad item fails the whole run. `rank: null` leaves a card out of the order. Returns `201 { run, changed }`. |
+| `GET`, `PUT` | `/api/sequence/settings` | read: token endpoint; write: admin or write token | `{ "designUrl" }`: a link to the page's design, shown in its footer. https only; empty removes it. Stored as the page setting `sequence.designUrl`. |
+
+"Moved" compares the latest run with the one before, among the cards both ranked, so a card
+moves only when the pass reordered it. Runs and page settings are in the full backup; restoring
+an older backup leaves them in place. Each run and each change to a ranked card sends a
+`sequence` change event.
 
 ## Planning rooms
 

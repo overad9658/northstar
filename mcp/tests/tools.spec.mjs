@@ -51,7 +51,7 @@ test('every tool works against a running Northstar with a write token', async (t
   const { client, call } = await connect(t, { baseUrl, token: writeToken });
 
   const names = (await client.listTools()).tools.map((tool) => tool.name).sort();
-  assert.deepEqual(names, ['add_card_note', 'add_milestone', 'apply_view', 'archive_card', 'audit_board', 'decide_card', 'define_metric', 'export_board', 'export_progress', 'get_activity', 'get_board', 'get_card_by_key', 'get_metrics', 'get_needs_you', 'get_project', 'get_report', 'list_cards', 'list_milestones', 'list_projects', 'list_reports', 'list_teams', 'list_views', 'move_card', 'move_project', 'record_metrics', 'remove_metric', 'restore_card', 'set_needs_you', 'set_ranks', 'set_team', 'status_export', 'upsert_card', 'upsert_project', 'upsert_report']);
+  assert.deepEqual(names, ['add_card_note', 'add_milestone', 'apply_view', 'archive_card', 'audit_board', 'decide_card', 'define_metric', 'export_board', 'export_progress', 'get_activity', 'get_board', 'get_card_by_key', 'get_metrics', 'get_needs_you', 'get_project', 'get_report', 'get_sequence', 'list_cards', 'list_milestones', 'list_projects', 'list_reports', 'list_teams', 'list_views', 'move_card', 'move_project', 'record_metrics', 'record_sequence_run', 'remove_metric', 'restore_card', 'set_needs_you', 'set_ranks', 'set_sequence_design', 'set_team', 'status_export', 'upsert_card', 'upsert_project', 'upsert_report']);
 
   const team = await call('set_team', { name: 'Platform Ops', capacity: 4 });
   assert.equal(team.isError, false, team.text);
@@ -118,6 +118,17 @@ test('every tool works against a running Northstar with a write token', async (t
   assert.equal((await call('set_ranks', { ranks: [{ id: rankedId, rank: 1 }, { id: 999999, rank: 2 }] })).isError, true);
   assert.equal((await call('get_card_by_key', { key: 'seq:1' })).value.rank, 5, 'a refused set_ranks changes nothing');
   assert.equal((await call('set_ranks', { ranks: [{ id: rankedId, rank: null }] })).value.ranks[0].rank, null);
+  // A sequencing pass: one call sets the cards and stores the run; get_sequence reads it back.
+  const pass = await call('record_sequence_run', { skillVersion: 'seq-test', scores: { refuted: 0 }, items: [{ id: rankedId, rank: 1, rankReason: 'Starts the chain', outcome: 'Loop runs' }, { id: keyedId, rank: 2 }] });
+  assert.equal(pass.isError, false, pass.text);
+  assert.equal(pass.value.run.skillVersion, 'seq-test');
+  const seq = await call('get_sequence');
+  assert.deepEqual(seq.value.rows.slice(0, 2).map((item) => [item.id, item.rankReason, item.reaches]), [[rankedId, 'Starts the chain', 'Loop runs'], [keyedId, '', '']], seq.text);
+  assert.deepEqual((await call('get_sequence', { mine: true })).value.rows, []);
+  assert.match((await call('record_sequence_run', { skillVersion: 'x', items: [{ id: rankedId, rank: 1, rankReason: 'x'.repeat(81) }] })).text, /items\[0\]\.rankReason must be 0–80 characters/);
+  assert.equal((await call('set_sequence_design', { url: 'https://design.example/seq' })).value.designUrl, 'https://design.example/seq');
+  assert.equal((await call('set_sequence_design', { url: 'http://design.example/seq' })).isError, true);
+  assert.equal((await call('set_sequence_design', { url: '' })).value.designUrl, '');
   const board = await call('get_board', { teamId: column.teamId });
   assert.ok(board.value.cards.some((item) => item.id === keyedId), board.text);
   const allBoards = await call('get_board', { team: 'all' });
@@ -165,11 +176,11 @@ test('a read token keeps read tools and drops write tools after the first refusa
   assert.equal(changed, true);
   const names = (await client.listTools()).tools.map((tool) => tool.name);
   assert.ok(['list_projects', 'audit_board', 'export_board'].every((name) => names.includes(name)));
-  assert.ok(!names.some((name) => ['upsert_project', 'move_project', 'upsert_card', 'move_card', 'add_card_note', 'decide_card', 'set_team', 'archive_card', 'restore_card', 'record_metrics', 'define_metric', 'upsert_report', 'add_milestone', 'set_needs_you', 'remove_metric', 'set_ranks'].includes(name)));
-  assert.ok(['get_metrics', 'get_report', 'list_reports', 'list_milestones', 'get_needs_you', 'export_progress'].every((name) => names.includes(name)));
+  assert.ok(!names.some((name) => ['upsert_project', 'move_project', 'upsert_card', 'move_card', 'add_card_note', 'decide_card', 'set_team', 'archive_card', 'restore_card', 'record_metrics', 'define_metric', 'upsert_report', 'add_milestone', 'set_needs_you', 'remove_metric', 'set_ranks', 'record_sequence_run', 'set_sequence_design'].includes(name)));
+  assert.ok(['get_metrics', 'get_report', 'list_reports', 'list_milestones', 'get_needs_you', 'export_progress', 'get_sequence'].every((name) => names.includes(name)));
 
   const declared = await connect(t, { baseUrl, token: readToken, scope: 'read' });
-  assert.equal((await declared.client.listTools()).tools.length, 18);
+  assert.equal((await declared.client.listTools()).tools.length, 19);
 });
 
 test('a bad token is refused with the API status, and the token never appears in errors', async (t) => {

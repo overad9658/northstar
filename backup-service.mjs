@@ -3,14 +3,16 @@ import { FOCUS_MIN_SCORE } from './public/shared/project-rules.js';
 
 const BACKUP_FORMAT = 'northstar-priority-matrix';
 const BACKUP_VERSION = 1;
-// Progress collections are optional: a backup without one leaves that table as it is, so restoring
-// an older backup never erases daily metrics, reports or milestones.
+// Progress collections (and sequence runs) are optional: a backup without one leaves that table as it
+// is, so restoring an older backup never erases daily metrics, reports, milestones or sequencing passes.
 const PROGRESS_COLLECTIONS = Object.freeze({
   metricDefs: { table: 'metric_defs', limit: 1_000 },
   metrics: { table: 'metrics', limit: 1_000_000 },
   reports: { table: 'reports', limit: 100_000 },
   milestones: { table: 'milestones', limit: 100_000 },
   progressChanges: { table: 'progress_changes', limit: 1_000_000 },
+  sequenceRuns: { table: 'sequence_runs', limit: 100_000 },
+  pageSettings: { table: 'page_settings', limit: 1_000 },
 });
 const COLLECTION_LIMITS = Object.freeze({
   projects: 10_000,
@@ -75,7 +77,7 @@ function prepareRestoreStatements(db) {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `),
     kanbanColumn: db.prepare('INSERT INTO kanban_columns (id, name, position, team_id, created_at) VALUES (?, ?, ?, ?, ?)'),
-    kanbanCard: db.prepare('INSERT INTO kanban_cards (id, column_id, project_id, team_id, title, description, assignee, external_url, next_step, decision, card_key, archived, archived_at, source, position, rank, objective, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'),
+    kanbanCard: db.prepare('INSERT INTO kanban_cards (id, column_id, project_id, team_id, title, description, assignee, external_url, next_step, decision, card_key, archived, archived_at, source, position, rank, objective, rank_reason, reason_full, wait_until, outcome, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'),
     kanbanNote: db.prepare('INSERT INTO kanban_card_notes (id, card_id, body, created_at) VALUES (?, ?, ?, ?)'),
     kanbanHistory: db.prepare('INSERT INTO kanban_card_history (id, card_id, column_id, column_name, entered_at, exited_at) VALUES (?, ?, ?, ?, ?, ?)'),
     kanbanTag: db.prepare('INSERT INTO kanban_card_tags (card_id, name) VALUES (?, ?)'),
@@ -87,6 +89,8 @@ function prepareRestoreStatements(db) {
     reports: db.prepare('INSERT INTO reports (id, date, body, bullets, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'),
     milestones: db.prepare('INSERT INTO milestones (id, date, label, metric_key, created_at) VALUES (?, ?, ?, ?, ?)'),
     progressChanges: db.prepare('INSERT INTO progress_changes (id, kind, subject, detail, actor, changed_at) VALUES (?, ?, ?, ?, ?, ?)'),
+    sequenceRuns: db.prepare('INSERT INTO sequence_runs (id, at, skill_version, scores, items) VALUES (?, ?, ?, ?, ?)'),
+    pageSettings: db.prepare('INSERT INTO page_settings (key, value) VALUES (?, ?)'),
   };
 }
 
@@ -118,7 +122,7 @@ function insertBackupRows(db, backup) {
   for (const row of backup.kanbanColumns) insert.kanbanColumn.run(row.id, row.name, row.position, row.team_id ?? fallbackTeamId, row.created_at);
   for (const row of backup.kanbanCards) {
     const columnTeamId = db.prepare('SELECT team_id AS teamId FROM kanban_columns WHERE id = ?').get(row.column_id)?.teamId;
-    insert.kanbanCard.run(row.id, row.column_id, row.project_id ?? null, row.team_id ?? columnTeamId ?? fallbackTeamId, row.title, row.description ?? '', row.assignee ?? '', row.external_url ?? '', row.next_step ?? '', row.decision ?? '', row.card_key || null, row.archived ? 1 : 0, row.archived_at ?? null, row.source ?? '', row.position, row.rank ?? null, row.objective ?? '', row.created_at, row.updated_at);
+    insert.kanbanCard.run(row.id, row.column_id, row.project_id ?? null, row.team_id ?? columnTeamId ?? fallbackTeamId, row.title, row.description ?? '', row.assignee ?? '', row.external_url ?? '', row.next_step ?? '', row.decision ?? '', row.card_key || null, row.archived ? 1 : 0, row.archived_at ?? null, row.source ?? '', row.position, row.rank ?? null, row.objective ?? '', row.rank_reason ?? '', row.reason_full ?? '', row.wait_until ?? null, row.outcome ?? '', row.created_at, row.updated_at);
   }
   for (const row of backup.kanbanCardNotes) insert.kanbanNote.run(row.id, row.card_id, row.body, row.created_at);
   for (const row of backup.kanbanCardHistory) insert.kanbanHistory.run(row.id, row.card_id, row.column_id, row.column_name, row.entered_at, row.exited_at ?? null);
@@ -137,6 +141,8 @@ function insertBackupRows(db, backup) {
   for (const row of backup.reports ?? []) insert.reports.run(row.id, row.date, row.body, row.bullets ?? '[]', row.created_at ?? now, row.updated_at ?? now);
   for (const row of backup.milestones ?? []) insert.milestones.run(row.id, row.date, row.label, row.metric_key ?? '', row.created_at ?? now);
   for (const row of backup.progressChanges ?? []) insert.progressChanges.run(row.id, row.kind, row.subject ?? '', row.detail ?? '{}', row.actor ?? '', row.changed_at ?? now);
+  for (const row of backup.sequenceRuns ?? []) insert.sequenceRuns.run(row.id, row.at ?? now, row.skill_version ?? '', row.scores ?? '{}', row.items ?? '[]');
+  for (const row of backup.pageSettings ?? []) insert.pageSettings.run(row.key, row.value ?? '');
   // The needs-you column survives only when its team and column came back with the restore.
   const needs = backup.progressSettings;
   if (needs && db.prepare('SELECT 1 FROM kanban_columns WHERE id = ? AND team_id = ?').get(needs.needs_column_id, needs.needs_team_id)) {
@@ -191,6 +197,8 @@ export function createBackupService(db) {
         reports: db.prepare('SELECT * FROM reports ORDER BY id').all(),
         milestones: db.prepare('SELECT * FROM milestones ORDER BY id').all(),
         progressChanges: db.prepare('SELECT * FROM progress_changes ORDER BY id').all(),
+        sequenceRuns: db.prepare('SELECT * FROM sequence_runs ORDER BY id').all(),
+        pageSettings: db.prepare('SELECT * FROM page_settings ORDER BY key').all(),
         progressSettings: db.prepare('SELECT needs_team_id, needs_column_id FROM progress_settings WHERE id = 1').get() ?? null,
       };
     },

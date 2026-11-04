@@ -69,6 +69,9 @@ The token comes from your environment, so it is not written into the file:
 | `list_reports` | read | Report dates, newest first, with titles and bullets (`from`, `to`) |
 | `list_milestones` | read | Milestones in date order (`from`, `to`, `metricKey`) |
 | `get_needs_you` | read | The count and first three cards waiting on the reader |
+| `get_sequence` | read | The order of work across boards: each step's owner, reason, what it unblocks and reaches, and what the last pass moved (`mine: true` for the caller's own) |
+| `record_sequence_run` | write | Record one sequencing pass: every card's rank and reasons in one transaction (`skillVersion`, `scores`, `items: [{id, rank, rankReason?, reasonFull?, waitUntil?, outcome?}]`) |
+| `set_sequence_design` | write | Set or clear (`url: ""`) the Sequence page's design link (https only) |
 | `export_progress` | read | Every definition, reading, milestone and report as one JSON document in a stable order |
 | `record_metrics` | write | One day's readings: `date` and `metrics: [{key, value, note?, rebuilt?}]` |
 | `define_metric` | write | Create or update a metric definition by `key`; `hidden: true` keeps it recording without a tile |
