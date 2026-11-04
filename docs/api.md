@@ -230,7 +230,7 @@ from `GET /api/kanban?teamId=<id>`). Creating a column without
 
 | Method | Path | Auth | Purpose |
 | --- | --- | --- | --- |
-| `GET` | `/api/kanban` | token endpoint | Columns and cards, with tags and project links. Archived cards only with `?archived=include` or `?archived=only`. |
+| `GET` | `/api/kanban` | token endpoint | Columns and cards, with tags and project links. In each column, ranked cards come first by `rank`, then unranked cards by `position`. Archived cards only with `?archived=include` or `?archived=only`. |
 | `GET` | `/api/kanban/projects` | token endpoint | Project ids and names for card links. |
 | `GET` | `/api/kanban/report` | token endpoint | Every card's column history and durations. |
 | `POST` | `/api/kanban/columns` | token endpoint | Create a column: `{ "name" }`. |
@@ -248,7 +248,8 @@ Optional card fields: `description`, `assignee`, `externalUrl`, `nextStep`, `dec
 `projectId`, `tags`, `rank`, `objective`, `blockedBy`.
 
 - `rank` is a whole number from 0 to 1000000, or null for none. It is a card's place in a
-  sequence across boards and survives moves between columns. `position`, a card's order inside
+  sequence across boards and survives moves between columns. The board orders each column by it, and
+  dragging a card within its column on the board sets it between its new neighbours. `position`, a card's order inside
   its column, is set by the board and cannot be sent.
 - `objective` is short text (at most 300 characters).
 - `blockedBy` is a list of other card ids (at most 50). Sending it replaces the stored list; a

@@ -3,6 +3,7 @@ import { liveUpdates } from './live-updates.js';
 import { COLUMN_DRAG_TYPE, columnControls, dropTarget, moveTarget, reorderColumns } from './kanban-columns.js';
 import { ALL_BOARDS, targetColumn } from './shared/kanban-boards.js';
 import { cardMatches, requestedCard } from './shared/card-search.js';
+import { compareCards, ranksForMove } from './shared/card-order.js';
 
 const board = document.querySelector('#kanban-board');
 const dialog = document.querySelector('#card-dialog');
@@ -107,7 +108,7 @@ function render() {
       && (!selectedTag || card.tags?.includes(selectedTag))
       && (!selectedAssignee || (selectedAssignee === 'none' ? !card.assignee : card.assignee === selectedAssignee))
       && (selectedDecision !== 'open' || (card.decision && !card.decision.decidedOption))
-      && (selectedProject === 'all' || (selectedProject === 'none' ? card.projectId === null : String(card.projectId) === selectedProject)));
+      && (selectedProject === 'all' || (selectedProject === 'none' ? card.projectId === null : String(card.projectId) === selectedProject))).sort(compareCards);
     return `<section class="kanban-column" data-column-id="${escapeHtml(column.key)}" aria-label="${escapeHtml(column.name)}">
       <header class="kanban-column-head"${canManageColumns ? ' draggable="true" title="Drag to reorder"' : ''}><div><h2>${escapeHtml(column.name)}</h2><span>${cards.length}</span></div>${columnControls(column, columnIndex, data.columns.length, canManageColumns)}</header>
       <div class="kanban-card-list">${cards.map((card) => `<article class="kanban-card${card.archived ? ' archived' : ''}" data-card-id="${card.id}" ${canEdit && canEditTeam(card.teamId) ? 'draggable="true"' : ''} tabindex="0" role="button" aria-label="${escapeHtml(card.title)}${allMode() ? `, ${escapeHtml(card.teamName)}` : ''}">
@@ -400,9 +401,38 @@ board.addEventListener('dragstart', (event) => {
   const cardElement = event.target.closest('[data-card-id]');
   if (!cardElement) return;
   dragging = true;
+  draggedCardId = Number(cardElement.dataset.cardId);
   event.dataTransfer.setData('text/plain', cardElement.dataset.cardId);
   event.dataTransfer.effectAllowed = 'move';
 });
+// Where a dragged card would land in a column: before the first card whose middle is below the pointer.
+function dropBefore(columnElement, clientY, draggedId) {
+  return [...columnElement.querySelectorAll('[data-card-id]')]
+    .find((element) => Number(element.dataset.cardId) !== draggedId && clientY < element.getBoundingClientRect().top + element.getBoundingClientRect().height / 2) || null;
+}
+
+function clearDropMarks() {
+  board.querySelectorAll('.drop-target, .drop-before').forEach((element) => element.classList.remove('drop-target', 'drop-before'));
+}
+
+let draggedCardId = null;
+
+// Dragging a card within its column sets its rank between its new neighbours (see ranksForMove).
+async function reorderCard(card, columnElement, clientY) {
+  const column = data.cards.filter((item) => item.columnKey === card.columnKey).sort(compareCards);
+  const others = column.filter((item) => item.id !== card.id);
+  const before = dropBefore(columnElement, clientY, card.id);
+  // With filters on, a drop after the last shown card lands right after that card, not at the column's end.
+  const shown = [...columnElement.querySelectorAll('[data-card-id]')].map((element) => Number(element.dataset.cardId)).filter((id) => id !== card.id);
+  const index = before ? others.findIndex((item) => item.id === Number(before.dataset.cardId))
+    : shown.length ? others.findIndex((item) => item.id === shown.at(-1)) + 1 : others.length;
+  const ranks = ranksForMove(column, card.id, index);
+  if (!ranks.length) return;
+  boardError.textContent = '';
+  try { await requestJson('/api/kanban/cards/ranks', mutation('PUT', { ranks }), 'The order could not be saved.'); await reload(); showToast('Card reordered'); }
+  catch (error) { boardError.textContent = error.message; }
+}
+
 board.addEventListener('dragover', (event) => {
   if (canManageColumns && event.dataTransfer.types.includes(COLUMN_DRAG_TYPE)) {
     const columnElement = event.target.closest('[data-column-id]');
@@ -418,8 +448,10 @@ board.addEventListener('dragover', (event) => {
   if (!columnElement) return;
   event.preventDefault();
   event.dataTransfer.dropEffect = 'move';
-  board.querySelectorAll('.drop-target').forEach((element) => element.classList.remove('drop-target'));
-  columnElement.classList.add('drop-target');
+  clearDropMarks();
+  const card = data.cards.find((item) => item.id === draggedCardId);
+  if (card && card.columnKey === columnElement.dataset.columnId) dropBefore(columnElement, event.clientY, card.id)?.classList.add('drop-before');
+  else columnElement.classList.add('drop-target');
 });
 board.addEventListener('dragleave', (event) => {
   const columnElement = event.target.closest('[data-column-id]');
@@ -427,7 +459,7 @@ board.addEventListener('dragleave', (event) => {
 });
 board.addEventListener('drop', async (event) => {
   const columnElement = event.target.closest('[data-column-id]');
-  board.querySelectorAll('.drop-target').forEach((element) => element.classList.remove('drop-target'));
+  clearDropMarks();
   if (canManageColumns && columnElement && event.dataTransfer.types.includes(COLUMN_DRAG_TYPE)) {
     event.preventDefault();
     const draggedId = Number(event.dataTransfer.getData(COLUMN_DRAG_TYPE));
@@ -440,7 +472,8 @@ board.addEventListener('drop', async (event) => {
   const cardId = Number(event.dataTransfer.getData('text/plain'));
   const card = data.cards.find((item) => item.id === cardId);
   const column = data.columns.find((item) => item.key === columnElement.dataset.columnId);
-  if (!card || !column || card.columnKey === column.key) return;
+  if (!card || !column) return;
+  if (card.columnKey === column.key) { if (canEditTeam(card.teamId)) await reorderCard(card, columnElement, event.clientY); return; }
   // On All boards a card moves to the same-named column on its own team; it never changes team.
   const columnId = allMode() ? targetColumn(column, card.teamId) : column.id;
   if (!columnId) {
@@ -452,8 +485,8 @@ board.addEventListener('drop', async (event) => {
   try { await api(`/cards/${cardId}`, mutation('PUT', { columnId })); await reload(); showToast('Card moved'); }
   catch (error) { boardError.textContent = error.message; }
 });
-board.addEventListener('dragend', () => dragging = false);
-board.addEventListener('dragend', () => board.querySelectorAll('.drop-target').forEach((element) => element.classList.remove('drop-target')));
+board.addEventListener('dragend', () => { dragging = false; draggedCardId = null; });
+board.addEventListener('dragend', clearDropMarks);
 
 form.addEventListener('submit', saveCard);
 noteForm.addEventListener('submit', async (event) => {

@@ -231,7 +231,7 @@ export function createKanbanService(db) {
           (SELECT COUNT(*) FROM kanban_card_notes n WHERE n.card_id = c.id) AS noteCount
         FROM kanban_cards c LEFT JOIN projects p ON p.id = c.project_id
         ${conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''}
-        ORDER BY c.column_id, c.position, c.id
+        ORDER BY c.column_id, CASE WHEN c.rank IS NULL THEN 1 ELSE 0 END, c.rank, c.position, c.id
       `).all(...(teamId ? [teamId] : []));
       const tags = db.prepare('SELECT card_id AS cardId, name FROM kanban_card_tags ORDER BY name').all();
       const cardTags = new Map();
@@ -347,7 +347,8 @@ export function createKanbanService(db) {
         return updated;
       });
     },
-    // sort "rank": ranked cards by rank (ties by id), then unranked cards by id. Without it, board order.
+    // sort "rank": ranked cards by rank (ties by id), then unranked cards by id. Without it, board order:
+    // by column, ranked cards first by rank, then unranked cards by position (see public/shared/card-order.js).
     findCards({ key, externalUrl, projectId: linkedProjectId, decision, tag, source, archived, sort, includeHidden = false } = {}) {
       if (sort !== undefined && sort !== 'rank') throw new KanbanError(400, 'sort must be "rank".');
       const conditions = [archivedCondition(archived), includeHidden ? '' : '(p.id IS NULL OR p.hidden_from_read_only = 0)'].filter(Boolean);
@@ -362,7 +363,7 @@ export function createKanbanService(db) {
         conditions.push("c.decision != ''");
       }
       const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-      const order = sort === 'rank' ? 'CASE WHEN c.rank IS NULL THEN 1 ELSE 0 END, c.rank, c.id' : 'c.column_id, c.position, c.id';
+      const order = sort === 'rank' ? 'CASE WHEN c.rank IS NULL THEN 1 ELSE 0 END, c.rank, c.id' : 'c.column_id, CASE WHEN c.rank IS NULL THEN 1 ELSE 0 END, c.rank, c.position, c.id';
       return db.prepare(`SELECT c.id FROM kanban_cards c LEFT JOIN projects p ON p.id = c.project_id ${where} ORDER BY ${order}`)
         .all(...params).map((row) => card(row.id))
         .filter((item) => decision === undefined || !item.decision?.decidedOption);

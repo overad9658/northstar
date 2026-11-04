@@ -29,6 +29,7 @@
 .kanban-card { min-width:0; padding:13px; overflow-wrap:anywhere; border:1px solid var(--line); border-radius:10px; background:var(--white); box-shadow:0 2px 8px rgb(24 34 32 / 4%); }
 .kanban-card[draggable] { cursor:grab; }
 .kanban-card[draggable]:active { cursor:grabbing; }
+.kanban-card.drop-before { box-shadow:0 -3px 0 var(--green); }
 .kanban-card:hover,.kanban-card:focus-visible { border-color:#95b2a5; outline:0; }
 .kanban-card-id { float:right; margin:0 0 4px 8px; color:var(--muted); font-size:10px; font-weight:700; font-variant-numeric:tabular-nums; }
 .kanban-search input { background:var(--white); }
