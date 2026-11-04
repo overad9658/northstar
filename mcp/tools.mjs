@@ -9,6 +9,10 @@ const object = (properties, required = []) => ({ type: 'object', properties, req
 const names = (maxItems) => ({ type: 'array', items: text(80, 1), minItems: 1, maxItems });
 const fail = (status, message) => Object.assign(new Error(message), { status });
 const lower = (value) => String(value ?? '').trim().toLocaleLowerCase();
+const day = { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$', minLength: 10, maxLength: 10 };
+const slug = { type: 'string', pattern: '^[a-z0-9]+(?:[_-][a-z0-9]+)*$', minLength: 1, maxLength: 64 };
+const reading = object({ key: slug, value: { type: ['number', 'null'] }, note: text(500), rebuilt: { type: 'boolean' } }, ['key', 'value']);
+const bullet = object({ text: text(300, 1), metric_key: slug }, ['text']);
 
 // Every team's board, archived cards included: [{ team, columns, cards }].
 async function boards(api) {
@@ -247,10 +251,102 @@ export const tools = [
       return team ? api.request('PUT', `/api/teams/${team.id}`, { body: { capacity } }) : api.request('POST', '/api/teams', { body: { name, capacity } });
     },
   },
+  {
+    name: 'record_metrics',
+    write: true,
+    description: 'Record one day of metric readings: date (YYYY-MM-DD) and a list of {key, value, note?, rebuilt?}. value is a number, or null when there is no reading. rebuilt=true marks a value worked out later, not read live that day. Each entry replaces the stored one for that date and key; repeating a call changes nothing.',
+    inputSchema: object({ date: day, metrics: { type: 'array', items: reading, minItems: 1, maxItems: 1000 } }, ['date', 'metrics']),
+    run: (api, body) => api.request('PUT', '/api/progress/metrics', { body }),
+  },
+  {
+    name: 'define_metric',
+    write: true,
+    description: 'Create or update a metric definition by key. band (momentum, health or trust) places its tile; question is the one line the tile answers; direction (up_good, down_good, neutral) colors its change; startsWhen says when an unmeasured metric starts. Fields left out keep their values.',
+    inputSchema: object({
+      key: slug, label: text(80, 1), unit: text(20), direction: { type: 'string', enum: ['up_good', 'down_good', 'neutral'] },
+      band: { type: 'string', enum: ['momentum', 'health', 'trust'] }, question: text(120), startsWhen: text(120),
+      position: { type: 'integer', minimum: 0, maximum: 9999 }, description: text(500),
+    }, ['key']),
+    run: (api, { key, ...def }) => api.request('PUT', `/api/progress/metric-defs/${encodeURIComponent(key)}`, { body: def }),
+  },
+  {
+    name: 'get_metrics',
+    description: 'Metric definitions and readings, filtered by keys and an inclusive from/to date range (YYYY-MM-DD). Readings are sorted by key, then date.',
+    inputSchema: object({ keys: { type: 'array', items: slug, minItems: 1, maxItems: 100 }, from: day, to: day }),
+    async run(api, { keys, from, to }) {
+      const [defs, metrics] = await Promise.all([
+        api.request('GET', '/api/progress/metric-defs'),
+        api.request('GET', '/api/progress/metrics', { query: { keys: keys?.join(','), from, to } }),
+      ]);
+      return { defs: keys ? defs.filter((def) => keys.includes(def.key)) : defs, metrics };
+    },
+  },
+  {
+    name: 'upsert_report',
+    write: true,
+    description: "Create or replace the report for a date (YYYY-MM-DD) as Markdown. bullets [{text, metric_key?}] are the day's short explanations; a bullet that names a metric links to its tile. Bullets left out keep the stored ones. Repeating a call changes nothing.",
+    inputSchema: object({ date: day, markdown: text(200000, 1), bullets: { type: 'array', items: bullet, maxItems: 50 } }, ['date', 'markdown']),
+    run: (api, { date, ...body }) => api.request('PUT', `/api/progress/reports/${date}`, { body }),
+  },
+  {
+    name: 'get_report',
+    description: 'The report for one date (YYYY-MM-DD): its Markdown and bullets.',
+    inputSchema: object({ date: day }, ['date']),
+    run: (api, { date }) => api.request('GET', `/api/progress/reports/${date}`),
+  },
+  {
+    name: 'list_reports',
+    description: 'Report dates, newest first, with each title and bullets, in an inclusive from/to range (YYYY-MM-DD).',
+    inputSchema: object({ from: day, to: day }),
+    run: (api, query) => api.request('GET', '/api/progress/reports', { query }),
+  },
+  {
+    name: 'add_milestone',
+    write: true,
+    description: 'Mark a milestone on the progress timeline: date (YYYY-MM-DD), label, and optionally the metricKey it belongs to (without one it shows on every chart). A milestone is named by its date and label; repeating a call changes nothing.',
+    inputSchema: object({ date: day, label: text(120, 1), metricKey: slug }, ['date', 'label']),
+    run: (api, body) => api.request('PUT', '/api/progress/milestones', { body }),
+  },
+  {
+    name: 'list_milestones',
+    description: 'Milestones in date order, in an inclusive from/to range (YYYY-MM-DD), optionally only those of one metricKey.',
+    inputSchema: object({ from: day, to: day, metricKey: slug }),
+    run: (api, query) => api.request('GET', '/api/progress/milestones', { query }),
+  },
+  {
+    name: 'set_needs_you',
+    write: true,
+    description: 'Choose the board column whose cards the progress page lists under "Needs you": team (name or id) and column (name).',
+    inputSchema: object({ team: text(50, 1), column: text(80, 1) }, ['team', 'column']),
+    async run(api, { team, column }) {
+      const target = resolveTeam(await api.request('GET', '/api/teams'), team);
+      const { columns } = await api.request('GET', '/api/kanban', { query: { teamId: target.id } });
+      const columnId = resolveColumn(columns, column, target.name).id;
+      return api.request('PUT', '/api/progress/settings', { body: { needsYou: { teamId: target.id, columnId } } });
+    },
+  },
+  {
+    name: 'get_needs_you',
+    description: 'What needs the reader: the count and first three cards of the column set with set_needs_you.',
+    inputSchema: object({}),
+    run: (api) => api.request('GET', '/api/progress/needs-you'),
+  },
+  {
+    name: 'export_progress',
+    description: 'Every metric definition, reading, milestone and report as one JSON document in a stable order with sorted keys, so two exports diff cleanly.',
+    inputSchema: object({}),
+    run: (api) => api.request('GET', '/api/progress/export'),
+  },
 ];
 
-// Enough of JSON Schema for the shapes above: types, required, enums, lengths and ranges.
+// Enough of JSON Schema for the shapes above: types (one, or a list such as ["number", "null"]),
+// required, enums, patterns, lengths and ranges.
 export function validate(schema, value, path = 'arguments') {
+  if (Array.isArray(schema.type)) {
+    if (value === null && schema.type.includes('null')) return null;
+    const errors = schema.type.filter((type) => type !== 'null').map((type) => validate({ ...schema, type }, value, path));
+    return errors.includes(null) ? null : errors[0] ?? `${path} must not be null.`;
+  }
   if (schema.type === 'object') {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return `${path} must be an object.`;
     for (const name of schema.required || []) if (value[name] === undefined) return `${path}.${name} is required.`;
@@ -284,6 +380,15 @@ export function validate(schema, value, path = 'arguments') {
     if (typeof value !== 'string') return `${path} must be text.`;
     if (schema.enum && !schema.enum.includes(value)) return `${path} must be one of: ${schema.enum.join(', ')}.`;
     if (value.length < (schema.minLength ?? 0) || value.length > (schema.maxLength ?? Infinity)) return `${path} must be ${schema.minLength ?? 0}–${schema.maxLength} characters.`;
+    if (schema.pattern && !new RegExp(schema.pattern).test(value)) return `${path} does not have the expected form (${schema.pattern}).`;
+    return null;
+  }
+  if (schema.type === 'number') {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return `${path} must be a number.`;
+    return null;
+  }
+  if (schema.type === 'boolean') {
+    if (typeof value !== 'boolean') return `${path} must be true or false.`;
     return null;
   }
   if (schema.type === 'integer') {

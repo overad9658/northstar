@@ -63,6 +63,31 @@ The token comes from your environment, so it is not written into the file:
 | `add_card_note` | write | Add a note to a card |
 | `decide_card` | write | Set a card decision's chosen option |
 | `set_team` | write | Create a team or set its capacity |
+| `get_metrics` | read | Metric definitions and readings, by `keys`, `from` and `to` |
+| `get_report` | read | One day's report (`date`): Markdown and bullets |
+| `list_reports` | read | Report dates, newest first, with titles and bullets (`from`, `to`) |
+| `list_milestones` | read | Milestones in date order (`from`, `to`, `metricKey`) |
+| `get_needs_you` | read | The count and first three cards waiting on the reader |
+| `export_progress` | read | Every definition, reading, milestone and report as one JSON document in a stable order |
+| `record_metrics` | write | One day's readings: `date` and `metrics: [{key, value, note?, rebuilt?}]` |
+| `define_metric` | write | Create or update a metric definition by `key` |
+| `upsert_report` | write | Create or replace a day's report: `date`, `markdown`, optional `bullets: [{text, metric_key?}]` |
+| `add_milestone` | write | Add a milestone: `date`, `label`, optional `metricKey` |
+| `set_needs_you` | write | Choose the board column, by `team` and `column` name, whose cards are waiting on the reader |
+
+### Progress tools
+
+The progress tools feed the Progress page: a few numbers each day, why they moved, and what is
+waiting on the reader. Every write tool is idempotent, so an agent can repeat a day safely.
+
+1. Define each metric once with `define_metric`: a `label`, a `question` its tile answers, a
+   `direction` (`up_good`, `down_good` or `neutral`) and a `band` (`momentum`, `health` or `trust`).
+   A metric that cannot be measured yet gets `startsWhen`.
+2. Each day, call `record_metrics` with that day's readings. `value: null` means there was no reading.
+   `rebuilt: true` marks a value estimated from history rather than read on the day.
+3. Write the day's report with `upsert_report`. Give each bullet that explains a number its
+   `metric_key`, so the page links the line and the tile.
+4. Mark turning points with `add_milestone`.
 
 ### Placing and moving cards
 

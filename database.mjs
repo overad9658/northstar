@@ -420,6 +420,68 @@ function migrateSavedViews(db) {
   db.exec('CREATE INDEX IF NOT EXISTS idx_saved_views_user ON saved_views(user_id)');
 }
 
+// Daily progress: metric definitions, one value per metric per day, one Markdown report per day,
+// milestones, a change log for the activity feed, and the board column that lists what needs the reader. Dates are YYYY-MM-DD text.
+function migrateProgress(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS metric_defs (
+      key TEXT PRIMARY KEY CHECK(length(key) BETWEEN 1 AND 64),
+      label TEXT NOT NULL CHECK(length(label) BETWEEN 1 AND 80),
+      unit TEXT NOT NULL DEFAULT '',
+      direction TEXT NOT NULL DEFAULT 'neutral' CHECK(direction IN ('up_good', 'down_good', 'neutral')),
+      position INTEGER NOT NULL DEFAULT 0,
+      description TEXT NOT NULL DEFAULT '',
+      band TEXT NOT NULL DEFAULT 'momentum' CHECK(band IN ('momentum', 'health', 'trust')),
+      question TEXT NOT NULL DEFAULT '',
+      starts_when TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS metrics (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      date TEXT NOT NULL CHECK(length(date) = 10),
+      key TEXT NOT NULL CHECK(length(key) BETWEEN 1 AND 64),
+      value DOUBLE PRECISION,
+      note TEXT NOT NULL DEFAULT '',
+      rebuilt INTEGER NOT NULL DEFAULT 0 CHECK(rebuilt IN (0, 1)),
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(date, key)
+    );
+    CREATE INDEX IF NOT EXISTS idx_metrics_key_date ON metrics(key, date);
+    CREATE TABLE IF NOT EXISTS reports (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      date TEXT NOT NULL UNIQUE CHECK(length(date) = 10),
+      body TEXT NOT NULL,
+      bullets TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS milestones (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      date TEXT NOT NULL CHECK(length(date) = 10),
+      label TEXT NOT NULL CHECK(length(label) BETWEEN 1 AND 120),
+      metric_key TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(date, label)
+    );
+    CREATE TABLE IF NOT EXISTS progress_changes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      kind TEXT NOT NULL CHECK(kind IN ('metrics', 'metric_def', 'report', 'milestone')),
+      subject TEXT NOT NULL DEFAULT '',
+      detail TEXT NOT NULL DEFAULT '{}',
+      actor TEXT NOT NULL DEFAULT '',
+      changed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_progress_changes_changed ON progress_changes(changed_at, id);
+    CREATE TABLE IF NOT EXISTS progress_settings (
+      id INTEGER PRIMARY KEY CHECK(id = 1),
+      needs_team_id INTEGER REFERENCES teams(id) ON DELETE SET NULL,
+      needs_column_id INTEGER REFERENCES kanban_columns(id) ON DELETE SET NULL
+    );
+    INSERT OR IGNORE INTO progress_settings (id) VALUES (1);
+  `);
+}
+
 export function databaseConfig(env = process.env) {
   const client = (env.DATABASE_CLIENT || 'sqlite').trim().toLowerCase();
   if (!['sqlite', 'postgres'].includes(client)) throw new Error('DATABASE_CLIENT must be sqlite or postgres.');
@@ -444,6 +506,7 @@ export function openDatabase(filePath, { client = 'sqlite', connectionString } =
         migratePlanningVotes(db);
         migrateSavedViews(db);
         migrateScheduleStages(db);
+        migrateProgress(db);
         db.exec(`
           CREATE INDEX IF NOT EXISTS idx_planning_room_projects ON planning_session_projects(session_id, position);
           CREATE INDEX IF NOT EXISTS idx_planning_votes_session_project ON planning_votes(session_id, project_id, updated_at);
@@ -465,6 +528,7 @@ export function openDatabase(filePath, { client = 'sqlite', connectionString } =
   migratePlanningVotes(db);
   migrateSavedViews(db);
   migrateScheduleStages(db);
+  migrateProgress(db);
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_planning_room_projects ON planning_session_projects(session_id, position);
     CREATE INDEX IF NOT EXISTS idx_planning_votes_session_project ON planning_votes(session_id, project_id, updated_at);

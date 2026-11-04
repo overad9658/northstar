@@ -130,7 +130,25 @@ export function createActivityService(db) {
         };
       });
 
-      const items = [...projects, ...moves, ...decisions, ...cardMoves, ...notes, ...changes, ...cardChanges]
+      // Progress changes: metrics recorded, metric definitions, reports and milestones.
+      const progress = select(`
+        SELECT ch.id, ch.kind, ch.subject, ch.detail, ch.actor, ch.changed_at AS at
+        FROM progress_changes ch WHERE 1 = 1 ${after('ch.changed_at', sinceSql)}
+        ORDER BY ch.changed_at DESC, ch.id DESC LIMIT ?
+      `, sinceSql).map((row) => {
+        const detail = JSON.parse(row.detail || '{}');
+        const base = { at: isoTimestamp(row.at), actor: row.actor };
+        if (row.kind === 'metrics') return { id: `metrics.recorded:${row.id}`, type: 'metrics.recorded', ...base, dates: detail.dates, keys: detail.keys, created: detail.created, updated: detail.updated };
+        if (row.kind === 'metric_def') return { id: `metric.defined:${row.id}`, type: 'metric.defined', ...base, key: row.subject, created: detail.created, fields: detail.fields };
+        if (row.kind === 'report') {
+          const type = detail.created ? 'report.created' : 'report.updated';
+          return { id: `${type}:${row.id}`, type, ...base, date: row.subject, title: detail.title };
+        }
+        const type = detail.deleted ? 'milestone.deleted' : detail.created ? 'milestone.added' : 'milestone.updated';
+        return { id: `${type}:${row.id}`, type, ...base, date: row.subject, label: detail.label, metricKey: detail.metricKey ?? null };
+      });
+
+      const items = [...projects, ...moves, ...decisions, ...cardMoves, ...notes, ...changes, ...cardChanges, ...progress]
         .sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : b.id.localeCompare(a.id)))
         .slice(0, count);
       return { items };

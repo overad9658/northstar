@@ -12,6 +12,7 @@ import { ALL_BOARDS } from './public/shared/kanban-boards.js';
 import { createViewsService, ViewError } from './views-service.mjs';
 import { ActivityError, createActivityService } from './activity-service.mjs';
 import { createEventsService } from './events-service.mjs';
+import { createProgressService, ProgressError } from './progress-service.mjs';
 import { createFailureLimiter, positiveInteger } from './rate-limit.mjs';
 import { readFile } from 'node:fs/promises';
 
@@ -23,7 +24,7 @@ const DOCS = Object.freeze({
 
 // Lookup filters from the query string; absent parameters are left out.
 // Requests that never change projects, the board or teams; every other committed write is published.
-const UNPUBLISHED_PATHS = ['/api/auth/', '/api/users', '/api/admin/', '/api/api-token', '/api/events'];
+const UNPUBLISHED_PATHS = ['/api/auth/', '/api/users', '/api/admin/', '/api/api-token', '/api/events', '/api/progress'];
 const isPublishedWrite = (req, res, url) => !['GET', 'HEAD', 'OPTIONS'].includes(req.method) && res.statusCode < 300
   && !UNPUBLISHED_PATHS.some((path) => url.pathname.startsWith(path));
 
@@ -45,6 +46,7 @@ export function createApi(db, { apiToken = process.env.API_TOKEN, tokenFailuresP
   const kanban = createKanbanService(db);
   const views = createViewsService(db);
   const activity = createActivityService(db);
+  const progress = createProgressService(db);
   const events = createEventsService({ projects, kanban, teams });
   const dataApi = createDataApi(db, projects, { apiToken });
   const requireUser = (req) => { const user = auth.userForRequest(req); if (!user) throw new AuthError(401, 'Authentication is required.'); return user; };
@@ -158,7 +160,8 @@ export function createApi(db, { apiToken = process.env.API_TOKEN, tokenFailuresP
       const projectsPath = /^\/api\/projects(?:\/(?:\d+(?:\/moves|\/promote)?|upsert))?$/.test(url.pathname);
       const teamsPath = /^\/api\/(?:teams(?:\/\d+)?|capacity)$/.test(url.pathname);
       const viewsPath = /^\/api\/views(?:\/\d+)?$/.test(url.pathname);
-      const tokenPath = kanbanPath || projectsPath || teamsPath || viewsPath || ['/api/activity', '/api/events', '/api/version'].includes(url.pathname);
+      const progressPath = url.pathname === '/api/progress' || url.pathname.startsWith('/api/progress/');
+      const tokenPath = kanbanPath || projectsPath || teamsPath || viewsPath || progressPath || ['/api/activity', '/api/events', '/api/version'].includes(url.pathname);
       const tokenAccess = tokenPath ? bearerAccess : null;
       if (tokenAccess?.scope === 'read' && req.method !== 'GET') throw new AuthError(403, 'This API token is read-only.');
       // Tokens belong to no team: a write token acts as an admin, a read token as a read-only viewer.
@@ -173,6 +176,63 @@ export function createApi(db, { apiToken = process.env.API_TOKEN, tokenFailuresP
         }
       } else requireUser(req);
       const requireUserAdmin = () => { if (user.role !== 'admin') throw new AuthError(403, 'Admin access is required.'); };
+      if (progressPath) {
+        res.setHeader('cache-control', 'no-store');
+        // Anyone signed in (or any token) reads progress; writes take an admin or a write token.
+        const write = () => { requireUserAdmin(); return { actor: user.username }; };
+        const range = () => ({ from: url.searchParams.get('from') ?? undefined, to: url.searchParams.get('to') ?? undefined });
+        const path = url.pathname.slice('/api/progress'.length);
+        const reportMatch = path.match(/^\/reports\/([^/]+)$/);
+        const defMatch = path.match(/^\/metric-defs\/([^/]+)$/);
+        const milestoneMatch = path.match(/^\/milestones\/(\d+)$/);
+        if (path === '/metrics') {
+          if (req.method === 'GET') return json(res, 200, progress.listMetrics({ ...range(), keys: url.searchParams.get('keys') ?? undefined })), true;
+          if (req.method === 'PUT') { const options = write(); return json(res, 200, progress.recordMetrics(await readJson(req, 500_000), options)), true; }
+        } else if (path === '/metric-defs') {
+          if (req.method === 'GET') return json(res, 200, progress.listDefs()), true;
+        } else if (defMatch) {
+          if (req.method === 'PUT') {
+            const options = write();
+            const result = progress.defineMetric(decodeURIComponent(defMatch[1]), await readJson(req), options);
+            return json(res, result.created ? 201 : 200, result), true;
+          }
+        } else if (path === '/reports') {
+          if (req.method === 'GET') return json(res, 200, progress.listReports(range())), true;
+        } else if (reportMatch) {
+          const date = decodeURIComponent(reportMatch[1]);
+          if (req.method === 'GET') return json(res, 200, progress.getReport(date)), true;
+          if (req.method === 'PUT') {
+            const options = write();
+            const result = progress.upsertReport(date, await readJson(req, 500_000), options);
+            return json(res, result.created ? 201 : 200, result), true;
+          }
+        } else if (path === '/milestones') {
+          if (req.method === 'GET') return json(res, 200, progress.listMilestones({ ...range(), metricKey: url.searchParams.get('metricKey') || undefined })), true;
+          if (req.method === 'PUT') {
+            const options = write();
+            const result = progress.addMilestone(await readJson(req), options);
+            return json(res, result.created ? 201 : 200, result), true;
+          }
+        } else if (milestoneMatch) {
+          if (req.method === 'DELETE') { const options = write(); progress.deleteMilestone(Number(milestoneMatch[1]), options); res.writeHead(204); res.end(); return true; }
+        } else if (path === '/settings') {
+          if (req.method === 'GET') return json(res, 200, progress.settings()), true;
+          if (req.method === 'PUT') { write(); return json(res, 200, progress.saveSettings(await readJson(req))), true; }
+        } else if (path === '/needs-you') {
+          // The count and first three cards of the board column chosen in the settings, in board order.
+          if (req.method === 'GET') {
+            const { teamId, columnId } = progress.settings().needsYou;
+            const column = columnId ? db.prepare('SELECT k.name AS columnName, t.name AS teamName FROM kanban_columns k JOIN teams t ON t.id = k.team_id WHERE k.id = ?').get(columnId) : null;
+            if (!column) return json(res, 200, { configured: false, count: 0, items: [] }), true;
+            const cards = kanban.list({ includeHidden: user.role === 'admin' || canManageTeam(user, teamId), teamId }).cards.filter((card) => card.columnId === columnId);
+            const items = cards.slice(0, 3).map(({ id, title, assignee, externalUrl, nextStep }) => ({ id, title, assignee, externalUrl, nextStep }));
+            return json(res, 200, { configured: true, teamId, columnId, ...column, count: cards.length, items }), true;
+          }
+        } else if (path === '/export') {
+          if (req.method === 'GET') return json(res, 200, progress.export()), true;
+        } else return json(res, 404, { error: 'Not found.' }), true;
+        return json(res, 405, { error: 'Method not allowed.' }), true;
+      }
       if (viewsPath) {
         // A view belongs to a person: the signed-in user, or the user who created the API token.
         const ownerId = tokenAccess ? tokenAccess.createdBy?.id : user.id;
@@ -403,7 +463,7 @@ export function createApi(db, { apiToken = process.env.API_TOKEN, tokenFailuresP
       }
       return json(res, 405, { error: 'Method not allowed.' }), true;
     } catch (error) {
-      const status = error instanceof PlanningError || error instanceof ProjectError || error instanceof AuthError || error instanceof KanbanError || error instanceof ActivityError || error instanceof ViewError ? error.status : 400;
+      const status = error instanceof PlanningError || error instanceof ProjectError || error instanceof AuthError || error instanceof KanbanError || error instanceof ActivityError || error instanceof ViewError || error instanceof ProgressError ? error.status : 400;
       const details = error instanceof PlanningError ? error.data : {};
       json(res, status, { error: error instanceof Error ? error.message : 'Request failed.', ...details });
       return true;

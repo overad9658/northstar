@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="description" content="Daily numbers, why they moved, and what is waiting on you.">
+    <title>Progress — Northstar</title>
+    <link rel="icon" href="/favicon.svg">
+    <script src="/theme.js"></script>
+    <link rel="stylesheet" href="/styles.css">
+    <link rel="stylesheet" href="/docs.css">
+    <link rel="stylesheet" href="/progress.css">
+    <script src="/progress.js" type="module"></script>
+  </head>
+  <body>
+    <main class="app-shell progress-shell">
+      <header class="topbar">
+        <a class="brand" href="/" aria-label="Northstar home"><span class="brand-mark">N</span><span>Northstar</span></a>
+        <div class="topbar-actions"><button class="theme-toggle" data-theme-toggle type="button" aria-label="Switch to dark mode" aria-pressed="false"><span class="theme-icon-light" aria-hidden="true">☀</span><span class="theme-icon-dark" aria-hidden="true">☾</span></button><a class="button secondary button-link" href="/">← Priority matrix</a></div>
+      </header>
+
+      <section class="page-head page-title progress-head">
+        <h1>Progress</h1>
+        <p class="subtitle" id="progress-asof"></p>
+        <button class="progress-settings" id="progress-settings" type="button" hidden aria-label="Choose the board column for Waiting on you" title="Choose the board column for Waiting on you"><span aria-hidden="true">⚙</span></button>
+      </section>
+
+      <div class="progress-grid" id="progress-app" aria-busy="true">
+        <div class="progress-headline" id="progress-headline"></div>
+        <div class="progress-needs" id="progress-needs"><div class="needs skeleton-block" aria-hidden="true"></div></div>
+        <div class="bands" id="progress-bands" aria-label="Today's numbers">
+          <div class="band"><div class="tile skeleton" aria-hidden="true"></div><div class="tile skeleton" aria-hidden="true"></div></div>
+          <div class="band"><div class="tile skeleton" aria-hidden="true"></div><div class="tile skeleton" aria-hidden="true"></div></div>
+          <div class="band"><div class="tile skeleton" aria-hidden="true"></div><div class="tile skeleton" aria-hidden="true"></div></div>
+        </div>
+        <section class="focus" id="progress-focus" aria-labelledby="focus-title" hidden></section>
+        <section class="reports-section" id="progress-reports" aria-labelledby="reports-title" hidden>
+          <h2 id="reports-title">Daily reports</h2>
+          <ol class="reports" id="report-list"></ol>
+        </section>
+      </div>
+    </main>
+    <div class="spark-tip" id="spark-tip" role="tooltip" hidden></div>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  </body>
+</html>

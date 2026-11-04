@@ -261,7 +261,8 @@ curl -X PUT http://localhost:3000/api/kanban/cards/7 \
 
 Event types: `project.created`, `project.moved`, `project.status`, `project.archived`,
 `project.restored`, `project.team`, `project.capacity`, `planning.decided`, `card.created`,
-`card.moved`, `card.note`. Field lists are in the README.
+`card.moved`, `card.note`, `metrics.recorded`, `metric.defined`, `report.created`, `report.updated`,
+`milestone.added`, `milestone.updated`, `milestone.deleted`. Field lists are in the README.
 
 ```text
 id: 42
@@ -271,6 +272,37 @@ data: {"version":42,"kinds":["projects"]}
 ```json
 { "items": [{ "id": "project.created:7", "type": "project.created", "at": "2026-01-05T10:00:00.000Z", "projectId": 7, "projectCode": "OPS-12", "projectName": "API migration" }] }
 ```
+
+## Progress
+
+Daily numbers, one Markdown report per day, and milestones. The Progress page
+shows them; [docs/progress-page.md](https://github.com/tsanford01/northstar/blob/main/docs/progress-page.md)
+explains its design. Dates are `YYYY-MM-DD`; metric keys are slugs such as `prs_merged`. Anyone
+signed in, and any token, can read. Writes take an admin session or a write token. Every write is
+idempotent: repeating it changes nothing and adds nothing to the activity feed.
+
+| Method | Path | Auth | Purpose |
+| --- | --- | --- | --- |
+| `GET` | `/api/progress/metrics` | token endpoint | Readings, sorted by key then date. `?keys=a,b`, `?from=`, `?to=` (inclusive). At most 10,000 rows, the newest. |
+| `PUT` | `/api/progress/metrics` | admin or write token | Record readings: `{ "date", "metrics": [{ "key", "value", "note"?, "rebuilt"? }] }` (1–1000). An entry may carry its own `date`. `value` is a number or `null` (no reading); `rebuilt: true` marks a value estimated from history. Each entry replaces the stored row for its date and key. Returns `{ created, updated, unchanged, metrics }`. |
+| `GET` | `/api/progress/metric-defs` | token endpoint | Metric definitions in `position` order. |
+| `PUT` | `/api/progress/metric-defs/:key` | admin or write token | Create (`201`) or update (`200`) a definition: `label`, `unit`, `direction` (`up_good`, `down_good`, `neutral`), `band` (`momentum`, `health`, `trust`), `question` (the line its tile answers), `startsWhen`, `position`, `description`. Fields left out keep their values. |
+| `GET` | `/api/progress/reports` | token endpoint | Report dates, newest first, with `title` (the first line) and `bullets`. `?from=`, `?to=`. |
+| `GET` | `/api/progress/reports/:date` | token endpoint | One report: `{ date, markdown, bullets }`. |
+| `PUT` | `/api/progress/reports/:date` | admin or write token | Create (`201`) or replace (`200`) a report: `{ "markdown", "bullets"?: [{ "text", "metric_key"? }] }`. Bullets left out keep the stored ones. |
+| `GET` | `/api/progress/milestones` | token endpoint | Milestones in date order. `?from=`, `?to=`, `?metricKey=`. |
+| `PUT` | `/api/progress/milestones` | admin or write token | Add a milestone: `{ "date", "label", "metricKey"? }`. A milestone is named by its date and label. |
+| `DELETE` | `/api/progress/milestones/:id` | admin or write token | Remove a milestone. |
+| `GET`, `PUT` | `/api/progress/settings` | read: token endpoint; write: admin or write token | `{ "needsYou": { "teamId", "columnId" } }`: the board column whose cards are waiting on the reader. Both `null` clears it. |
+| `GET` | `/api/progress/needs-you` | token endpoint | `{ configured, count, items }`: the count and first three cards of that column. |
+| `GET` | `/api/progress/export` | token endpoint | Every definition, reading, milestone and report in a stable order with sorted keys. |
+
+```json
+{ "date": "2026-11-03", "metrics": [{ "key": "prs_merged", "value": 9 }, { "key": "queue_open", "value": 37, "note": "Six items closed after planning" }] }
+```
+
+The full backup (`GET /api/backup`) includes the progress tables. Restoring a backup made before
+they existed leaves the current progress data in place.
 
 ## Planning rooms
 

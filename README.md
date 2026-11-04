@@ -22,6 +22,13 @@ Focus Now allows one non-complete, non-archived project per team. Dragging, edit
 
 The **Kanban board** in the main menu holds general to dos and project work. Admins can add and rename columns, create cards, optionally link cards to projects, add tags, and move cards between columns by dragging or editing. Use **Filter by project** and **Filter by tag** together to narrow the board; the project filter also offers **General to dos** for cards without a project. Each card can hold multiple notes that admins can add or delete. Opening a card shows its column history and time spent in each column; **Download time in column** exports the same history as CSV, including time in the current column as of export. The matrix hover preview and project editor show how many cards link to each project. Cards remain when a linked project is deleted; the project link is cleared. Read-only users can view the board, notes, and history but cannot change them.
 
+The **Progress** page in the main menu shows a few numbers for each day, why they moved, and what
+is waiting on you. Agents and scripts fill it through the API or the MCP tools: metric readings
+(live, or estimated from history), a Markdown report per day, and milestones. "Waiting on you"
+lists the cards in one board column that an admin chooses. To try it with 90 days of sample data,
+run `node support/progress-sample.mjs data/sample` and start the app with `DATA_DIR=data/sample
+AUTH_DISABLED=true pnpm start`. The design is in [docs/progress-page.md](docs/progress-page.md).
+
 Every impact or urgency change is saved with its date, previous position, new position, and source. Open a project and choose **View history** to review its movement timeline. Selecting the Complete filter also enables completed projects on the matrix automatically.
 
 Moves can include an optional comment explaining why the priority changed. Comments can be added during a matrix drag, a project edit, or a planning-room placement and appear in the movement timeline.
@@ -32,7 +39,7 @@ Use the **Teams** configuration page to add teams, rename them, and set a whole-
 
 Northstar prevents project allocations from exceeding their responsible team’s capacity and prevents a team’s capacity from being lowered below its current assignments.
 
-Use **Data** in the header to export a complete JSON backup or restore one later. Backups include projects, capacity, movement history, retrospectives, planning-room data, and kanban columns, cards, tags, notes, and column history. A separate CSV status export includes only current Active and Blocked projects for concise reporting. Restoring validates the file before atomically replacing the current portfolio, so a failed restore leaves existing data unchanged.
+Use **Data** in the header to export a complete JSON backup or restore one later. Backups include projects, capacity, movement history, retrospectives, planning-room data, kanban columns, cards, tags, notes, and column history, and progress metrics, reports and milestones. A separate CSV status export includes only current Active and Blocked projects for concise reporting. Restoring validates the file before atomically replacing the current portfolio, so a failed restore leaves existing data unchanged.
 
 ## Run with Docker
 
