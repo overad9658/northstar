@@ -50,10 +50,10 @@ export const tools = [
   },
   {
     name: 'list_cards',
-    description: 'List kanban cards across team boards, filtered by key, externalUrl, projectId, teamId, assignee, tag, source or decision="open". Archived cards are left out unless archived is "include" or "only".',
+    description: 'List kanban cards across team boards, filtered by key, externalUrl, projectId, teamId, assignee, tag, source or decision="open". Archived cards are left out unless archived is "include" or "only". sort="rank" orders ranked cards by rank (ties by id), then unranked ones by id; without it, cards come in board order. Each card carries rank (null when unranked), objective and blockedBy (card ids).',
     inputSchema: object({
       key: text(120, 1), externalUrl: text(2048, 1), projectId: id, teamId: id, assignee: text(80), tag: text(40, 1), source: text(80),
-      decision: { type: 'string', enum: ['open'] }, archived: { type: 'string', enum: ['include', 'only'] },
+      decision: { type: 'string', enum: ['open'] }, archived: { type: 'string', enum: ['include', 'only'] }, sort: { type: 'string', enum: ['rank'] },
     }),
     async run(api, { assignee, teamId, ...query }) {
       const cards = await api.request('GET', '/api/kanban/cards', { query });
@@ -151,7 +151,7 @@ export const tools = [
   {
     name: 'upsert_card',
     write: true,
-    description: 'Create a kanban card, or update the one whose key matches: its externalUrl (default) or, with key="key", its own card key. Repeating a call changes nothing. Place it with team (name or id) and column (name), or a raw card.columnId; a new card needs both team and column, and a column the team lacks is an error. An existing card stays on its own team.',
+    description: 'Create a kanban card, or update the one whose key matches: its externalUrl (default) or, with key="key", its own card key. Repeating a call changes nothing. Place it with team (name or id) and column (name), or a raw card.columnId; a new card needs both team and column, and a column the team lacks is an error. An existing card stays on its own team. card.rank (0–1000000, null clears) is its place in a sequence and survives column moves; card.position is not settable (the board assigns it). card.objective is short text (≤300); card.blockedBy is a list of other card ids and replaces the stored list.',
     inputSchema: object({ card: { type: 'object' }, key: { type: 'string', enum: ['externalUrl', 'key'] }, team: text(50, 1), column: text(80, 1) }, ['card']),
     async run(api, { card, key, team, column }) {
       if (team === undefined && column === undefined) return api.request('PUT', '/api/kanban/cards/upsert', { query: { key }, body: card });
@@ -208,6 +208,15 @@ export const tools = [
         throw fail(error.status ?? 0, `The card is in ${target.name}, but its project was not updated: ${error.message}`);
       }
     },
+  },
+  {
+    name: 'set_ranks',
+    write: true,
+    description: 'Set the rank of many cards in one call: ranks is a list of {id, rank}; rank is 0–1000000, or null to clear it. All are written or none: an unknown card, a repeated id or a card you cannot edit fails the whole call. Returns each {id, rank, changed}.',
+    inputSchema: object({
+      ranks: { type: 'array', minItems: 1, maxItems: 1000, items: object({ id, rank: { type: ['integer', 'null'], minimum: 0, maximum: 1_000_000 } }, ['id', 'rank']) },
+    }, ['ranks']),
+    run: (api, { ranks }) => api.request('PUT', '/api/kanban/cards/ranks', { body: { ranks } }),
   },
   {
     name: 'archive_card',

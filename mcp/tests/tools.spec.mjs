@@ -51,7 +51,7 @@ test('every tool works against a running Northstar with a write token', async (t
   const { client, call } = await connect(t, { baseUrl, token: writeToken });
 
   const names = (await client.listTools()).tools.map((tool) => tool.name).sort();
-  assert.deepEqual(names, ['add_card_note', 'add_milestone', 'apply_view', 'archive_card', 'audit_board', 'decide_card', 'define_metric', 'export_board', 'export_progress', 'get_activity', 'get_board', 'get_card_by_key', 'get_metrics', 'get_needs_you', 'get_project', 'get_report', 'list_cards', 'list_milestones', 'list_projects', 'list_reports', 'list_teams', 'list_views', 'move_card', 'move_project', 'record_metrics', 'remove_metric', 'restore_card', 'set_needs_you', 'set_team', 'status_export', 'upsert_card', 'upsert_project', 'upsert_report']);
+  assert.deepEqual(names, ['add_card_note', 'add_milestone', 'apply_view', 'archive_card', 'audit_board', 'decide_card', 'define_metric', 'export_board', 'export_progress', 'get_activity', 'get_board', 'get_card_by_key', 'get_metrics', 'get_needs_you', 'get_project', 'get_report', 'list_cards', 'list_milestones', 'list_projects', 'list_reports', 'list_teams', 'list_views', 'move_card', 'move_project', 'record_metrics', 'remove_metric', 'restore_card', 'set_needs_you', 'set_ranks', 'set_team', 'status_export', 'upsert_card', 'upsert_project', 'upsert_report']);
 
   const team = await call('set_team', { name: 'Platform Ops', capacity: 4 });
   assert.equal(team.isError, false, team.text);
@@ -107,6 +107,17 @@ test('every tool works against a running Northstar with a write token', async (t
   assert.deepEqual((await call('list_cards', { source: 'agent', archived: 'only' })).value.map((item) => item.id), [keyedId]);
   assert.equal((await call('get_card_by_key', { key: 'sync:T-7' })).value.archived, true);
   assert.equal((await call('restore_card', { id: keyedId })).value.archived, false);
+  // Rank, objective and blockers: upsert_card stores them, set_ranks moves many at once, list_cards sorts by rank.
+  const ranked = await call('upsert_card', { key: 'key', card: { key: 'seq:1', columnId: column.id, title: 'Sequenced', rank: 20, objective: 'Unblock the loop', blockedBy: [keyedId] } });
+  assert.deepEqual([ranked.value.card.rank, ranked.value.card.objective, ranked.value.card.blockedBy], [20, 'Unblock the loop', [keyedId]], ranked.text);
+  const rankedId = ranked.value.card.id;
+  const ranks = await call('set_ranks', { ranks: [{ id: keyedId, rank: 10 }, { id: rankedId, rank: 5 }] });
+  assert.deepEqual(ranks.value.ranks.map((item) => [item.id, item.rank]), [[keyedId, 10], [rankedId, 5]], ranks.text);
+  assert.deepEqual((await call('list_cards', { sort: 'rank' })).value.slice(0, 2).map((item) => item.id), [rankedId, keyedId]);
+  assert.match((await call('set_ranks', { ranks: [{ id: rankedId, rank: -1 }] })).text, /ranks\[0\]\.rank must be from 0/);
+  assert.equal((await call('set_ranks', { ranks: [{ id: rankedId, rank: 1 }, { id: 999999, rank: 2 }] })).isError, true);
+  assert.equal((await call('get_card_by_key', { key: 'seq:1' })).value.rank, 5, 'a refused set_ranks changes nothing');
+  assert.equal((await call('set_ranks', { ranks: [{ id: rankedId, rank: null }] })).value.ranks[0].rank, null);
   const board = await call('get_board', { teamId: column.teamId });
   assert.ok(board.value.cards.some((item) => item.id === keyedId), board.text);
   const allBoards = await call('get_board', { team: 'all' });
@@ -154,7 +165,7 @@ test('a read token keeps read tools and drops write tools after the first refusa
   assert.equal(changed, true);
   const names = (await client.listTools()).tools.map((tool) => tool.name);
   assert.ok(['list_projects', 'audit_board', 'export_board'].every((name) => names.includes(name)));
-  assert.ok(!names.some((name) => ['upsert_project', 'move_project', 'upsert_card', 'move_card', 'add_card_note', 'decide_card', 'set_team', 'archive_card', 'restore_card', 'record_metrics', 'define_metric', 'upsert_report', 'add_milestone', 'set_needs_you', 'remove_metric'].includes(name)));
+  assert.ok(!names.some((name) => ['upsert_project', 'move_project', 'upsert_card', 'move_card', 'add_card_note', 'decide_card', 'set_team', 'archive_card', 'restore_card', 'record_metrics', 'define_metric', 'upsert_report', 'add_milestone', 'set_needs_you', 'remove_metric', 'set_ranks'].includes(name)));
   assert.ok(['get_metrics', 'get_report', 'list_reports', 'list_milestones', 'get_needs_you', 'export_progress'].every((name) => names.includes(name)));
 
   const declared = await connect(t, { baseUrl, token: readToken, scope: 'read' });

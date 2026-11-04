@@ -302,6 +302,19 @@ function createRelatedTables(db) {
   ensureColumn(db, 'kanban_cards', 'archived_at', 'TEXT');
   ensureColumn(db, 'kanban_cards', 'source', "TEXT NOT NULL DEFAULT ''");
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_kanban_cards_key ON kanban_cards(card_key) WHERE card_key IS NOT NULL');
+  // rank is a card's place in a sequence across boards (NULL = unranked); position stays its order inside a column.
+  ensureColumn(db, 'kanban_cards', 'rank', 'INTEGER');
+  ensureColumn(db, 'kanban_cards', 'objective', "TEXT NOT NULL DEFAULT ''");
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_kanban_cards_rank ON kanban_cards(rank, id);
+    CREATE TABLE IF NOT EXISTS kanban_card_blockers (
+      card_id INTEGER NOT NULL REFERENCES kanban_cards(id) ON DELETE CASCADE,
+      blocker_id INTEGER NOT NULL REFERENCES kanban_cards(id) ON DELETE CASCADE,
+      PRIMARY KEY (card_id, blocker_id),
+      CHECK(card_id != blocker_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_kanban_card_blockers_blocker ON kanban_card_blockers(blocker_id, card_id);
+  `);
   ensureColumn(db, 'projects', 'hidden_from_read_only', 'INTEGER NOT NULL DEFAULT 0 CHECK(hidden_from_read_only IN (0, 1))');
   db.exec(`
     INSERT OR IGNORE INTO planning_session_projects

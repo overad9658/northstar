@@ -334,10 +334,17 @@ export function createApi(db, { apiToken = process.env.API_TOKEN, tokenFailuresP
         const result = kanban.upsertCard(await readJson(req), { key: url.searchParams.get('key') ?? 'externalUrl', actor: user.username });
         return json(res, result.created ? 201 : 200, result), true;
       }
+      if (url.pathname === '/api/kanban/cards/ranks') {
+        if (req.method !== 'PUT') return json(res, 405, { error: 'Method not allowed.' }), true;
+        const input = await readJson(req);
+        // Each card is checked as a single-card update would be: board member of its team, card visible.
+        const ranks = kanban.setRanks(input?.ranks, { canEdit: (item) => { requireBoardMember(user, item.teamId); requireVisibleCard(item.id, item.teamId); } });
+        return json(res, 200, { ranks }), true;
+      }
       if (cardMatch) {
         const id = cardMatch[1] ? Number(cardMatch[1]) : null;
         if (req.method === 'GET' && id) { const teamId = teamForCard(id); return json(res, 200, kanban.getCard(id, { includeHidden: canSeeHiddenOn(teamId), teamId })), true; }
-        if (req.method === 'GET') return json(res, 200, kanban.findCards({ ...lookupParams(url, ['key', 'externalUrl', 'projectId', 'decision', 'tag', 'source', 'archived']), includeHidden: user.role === 'admin' })), true;
+        if (req.method === 'GET') return json(res, 200, kanban.findCards({ ...lookupParams(url, ['key', 'externalUrl', 'projectId', 'decision', 'tag', 'source', 'archived', 'sort']), includeHidden: user.role === 'admin' })), true;
         if (req.method === 'POST' && !id) {
           const input = await readJson(req);
           const teamId = teamForColumn(input?.columnId);

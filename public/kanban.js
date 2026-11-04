@@ -73,6 +73,14 @@ function mutation(method, body) {
   return { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) };
 }
 
+// A blocker shows as #id with its title when it is on this board; a finished blocker (in a column named Done) is struck through.
+function blockerLabel(id) {
+  const blocker = data.cards.find((item) => item.id === id);
+  if (!blocker) return `#${id}`;
+  const done = /^done$/i.test(data.columns.find((column) => column.key === blocker.columnKey)?.name || '');
+  return `<span class="${done ? 'kanban-blocker-done' : ''}" title="${escapeHtml(blocker.title)}">#${id} ${escapeHtml(blocker.title)}</span>`;
+}
+
 function render() {
   const tags = [...new Set(data.cards.flatMap((card) => card.tags || []))].sort((a, b) => a.localeCompare(b));
   if (selectedTag && !tags.includes(selectedTag)) selectedTag = '';
@@ -106,6 +114,9 @@ function render() {
         ${allMode() ? `<span class="kanban-team-tag ${teamTone(card.teamId)}" title="Team board">${escapeHtml(card.teamName)}</span>` : ''}${card.archived ? '<span class="kanban-archived-tag">Archived</span>' : ''}<span class="kanban-card-id" title="Card number">#${card.id}</span><h3>${escapeHtml(card.title)}</h3>${card.description ? `<p>${escapeHtml(card.description)}</p>` : ''}
         ${card.assignee ? `<span class="kanban-assignee" title="Assignee">${escapeHtml(card.assignee)}</span>` : ''}
         ${card.nextStep ? `<p class="kanban-next-step"><strong>Next</strong> ${escapeHtml(card.nextStep)}</p>` : ''}
+        ${card.objective ? `<p class="kanban-objective"><strong>Objective</strong> ${escapeHtml(card.objective)}</p>` : ''}
+        ${(card.blockedBy || []).length ? `<p class="kanban-blocked-by"><strong>Blocked by</strong> ${card.blockedBy.map((id) => blockerLabel(id)).join(', ')}</p>` : ''}
+        ${card.rank === null || card.rank === undefined ? '' : `<span class="kanban-rank" title="Rank in the sequence">Rank ${card.rank}</span>`}
         ${card.decision ? `<span class="kanban-decision-tag${card.decision.decidedOption ? ' decided' : ''}">${card.decision.decidedOption
     ? `Decided: ${escapeHtml(card.decision.decidedOption)}`
     : `Decision open${card.decision.recommendation ? ` · recommends ${escapeHtml(card.decision.recommendation)}${card.decision.confidence === null ? '' : ` (${card.decision.confidence}%)`}` : ''}`}</span>` : ''}

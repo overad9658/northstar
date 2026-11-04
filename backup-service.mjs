@@ -37,6 +37,7 @@ function validateBackupDocument(input) {
   if (input.kanbanCardNotes !== undefined && (!Array.isArray(input.kanbanCardNotes) || input.kanbanCardNotes.length > 250_000)) throw new Error('The backup contains invalid kanban card notes.');
   if (input.kanbanCardHistory !== undefined && (!Array.isArray(input.kanbanCardHistory) || input.kanbanCardHistory.length > 500_000)) throw new Error('The backup contains invalid kanban card history.');
   if (input.kanbanCardTags !== undefined && (!Array.isArray(input.kanbanCardTags) || input.kanbanCardTags.length > 2_000_000)) throw new Error('The backup contains invalid kanban card tags.');
+  if (input.kanbanCardBlockers !== undefined && (!Array.isArray(input.kanbanCardBlockers) || input.kanbanCardBlockers.length > 2_000_000)) throw new Error('The backup contains invalid kanban card blockers.');
   if (input.projectChanges !== undefined && (!Array.isArray(input.projectChanges) || input.projectChanges.length > 1_000_000)) throw new Error('The backup contains invalid project changes.');
   if (input.cardChanges !== undefined && (!Array.isArray(input.cardChanges) || input.cardChanges.length > 1_000_000)) throw new Error('The backup contains invalid card changes.');
   for (const [collection, { limit }] of Object.entries(PROGRESS_COLLECTIONS)) {
@@ -46,7 +47,7 @@ function validateBackupDocument(input) {
   if (!Number.isInteger(totalCapacity) || totalCapacity < 0 || totalCapacity > 9999) {
     throw new Error('The backup contains an invalid team capacity.');
   }
-  return { ...input, teams: input.teams || [], teamMembers: input.teamMembers || [], kanbanColumns: input.kanbanColumns || [], kanbanCards: input.kanbanCards || [], kanbanCardNotes: input.kanbanCardNotes || [], kanbanCardHistory: input.kanbanCardHistory || [], kanbanCardTags: input.kanbanCardTags || [], projectChanges: input.projectChanges || [], cardChanges: input.cardChanges || [], totalCapacity };
+  return { ...input, teams: input.teams || [], teamMembers: input.teamMembers || [], kanbanColumns: input.kanbanColumns || [], kanbanCards: input.kanbanCards || [], kanbanCardNotes: input.kanbanCardNotes || [], kanbanCardHistory: input.kanbanCardHistory || [], kanbanCardTags: input.kanbanCardTags || [], kanbanCardBlockers: input.kanbanCardBlockers || [], projectChanges: input.projectChanges || [], cardChanges: input.cardChanges || [], totalCapacity };
 }
 
 function prepareRestoreStatements(db) {
@@ -74,10 +75,11 @@ function prepareRestoreStatements(db) {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `),
     kanbanColumn: db.prepare('INSERT INTO kanban_columns (id, name, position, team_id, created_at) VALUES (?, ?, ?, ?, ?)'),
-    kanbanCard: db.prepare('INSERT INTO kanban_cards (id, column_id, project_id, team_id, title, description, assignee, external_url, next_step, decision, card_key, archived, archived_at, source, position, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'),
+    kanbanCard: db.prepare('INSERT INTO kanban_cards (id, column_id, project_id, team_id, title, description, assignee, external_url, next_step, decision, card_key, archived, archived_at, source, position, rank, objective, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'),
     kanbanNote: db.prepare('INSERT INTO kanban_card_notes (id, card_id, body, created_at) VALUES (?, ?, ?, ?)'),
     kanbanHistory: db.prepare('INSERT INTO kanban_card_history (id, card_id, column_id, column_name, entered_at, exited_at) VALUES (?, ?, ?, ?, ?, ?)'),
     kanbanTag: db.prepare('INSERT INTO kanban_card_tags (card_id, name) VALUES (?, ?)'),
+    kanbanBlocker: db.prepare('INSERT INTO kanban_card_blockers (card_id, blocker_id) VALUES (?, ?)'),
     projectChange: db.prepare('INSERT INTO project_changes (id, project_id, field, from_value, to_value, note, actor, changed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'),
     cardChange: db.prepare('INSERT INTO card_changes (id, card_id, kind, detail, actor, changed_at) VALUES (?, ?, ?, ?, ?, ?)'),
     metricDefs: db.prepare('INSERT INTO metric_defs (key, label, unit, direction, band, question, starts_when, hidden, position, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'),
@@ -116,11 +118,12 @@ function insertBackupRows(db, backup) {
   for (const row of backup.kanbanColumns) insert.kanbanColumn.run(row.id, row.name, row.position, row.team_id ?? fallbackTeamId, row.created_at);
   for (const row of backup.kanbanCards) {
     const columnTeamId = db.prepare('SELECT team_id AS teamId FROM kanban_columns WHERE id = ?').get(row.column_id)?.teamId;
-    insert.kanbanCard.run(row.id, row.column_id, row.project_id ?? null, row.team_id ?? columnTeamId ?? fallbackTeamId, row.title, row.description ?? '', row.assignee ?? '', row.external_url ?? '', row.next_step ?? '', row.decision ?? '', row.card_key || null, row.archived ? 1 : 0, row.archived_at ?? null, row.source ?? '', row.position, row.created_at, row.updated_at);
+    insert.kanbanCard.run(row.id, row.column_id, row.project_id ?? null, row.team_id ?? columnTeamId ?? fallbackTeamId, row.title, row.description ?? '', row.assignee ?? '', row.external_url ?? '', row.next_step ?? '', row.decision ?? '', row.card_key || null, row.archived ? 1 : 0, row.archived_at ?? null, row.source ?? '', row.position, row.rank ?? null, row.objective ?? '', row.created_at, row.updated_at);
   }
   for (const row of backup.kanbanCardNotes) insert.kanbanNote.run(row.id, row.card_id, row.body, row.created_at);
   for (const row of backup.kanbanCardHistory) insert.kanbanHistory.run(row.id, row.card_id, row.column_id, row.column_name, row.entered_at, row.exited_at ?? null);
   for (const row of backup.kanbanCardTags) insert.kanbanTag.run(row.card_id, row.name);
+  for (const row of backup.kanbanCardBlockers) insert.kanbanBlocker.run(row.card_id, row.blocker_id);
   for (const row of backup.cardChanges) insert.cardChange.run(row.id, row.card_id, row.kind, row.detail ?? '{}', row.actor ?? '', row.changed_at);
   for (const row of backup.projectChanges) insert.projectChange.run(row.id, row.project_id, row.field, row.from_value, row.to_value, row.note ?? '', row.actor ?? '', row.changed_at);
   backfillKanbanHistory(db);
@@ -180,6 +183,7 @@ export function createBackupService(db) {
         kanbanCardNotes: db.prepare('SELECT * FROM kanban_card_notes ORDER BY card_id, created_at, id').all(),
         kanbanCardHistory: db.prepare('SELECT * FROM kanban_card_history ORDER BY card_id, entered_at, id').all(),
         kanbanCardTags: db.prepare('SELECT * FROM kanban_card_tags ORDER BY card_id, name').all(),
+        kanbanCardBlockers: db.prepare('SELECT * FROM kanban_card_blockers ORDER BY card_id, blocker_id').all(),
         projectChanges: db.prepare('SELECT * FROM project_changes ORDER BY id').all(),
         cardChanges: db.prepare('SELECT * FROM card_changes ORDER BY id').all(),
         metricDefs: db.prepare('SELECT * FROM metric_defs ORDER BY position, key').all(),
@@ -199,6 +203,7 @@ export function createBackupService(db) {
             DELETE FROM card_changes;
             DELETE FROM project_changes;
             DELETE FROM kanban_card_tags;
+            DELETE FROM kanban_card_blockers;
             DELETE FROM kanban_card_history;
             DELETE FROM kanban_card_notes;
             DELETE FROM kanban_cards;

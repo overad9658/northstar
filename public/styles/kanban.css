@@ -40,6 +40,10 @@
 .kanban-project-tag,.kanban-general-tag { width:max-content; max-width:100%; margin-top:11px; padding:5px 7px; border-radius:6px; color:var(--green); background:var(--green-2); display:block; font-size:10px; font-weight:700; overflow-wrap:anywhere; }
 .kanban-assignee { width:max-content; max-width:100%; margin-top:9px; padding:4px 8px; border-radius:999px; color:var(--ink); border:1px solid var(--line); display:block; font-size:10px; font-weight:700; overflow-wrap:anywhere; }
 .kanban-next-step { margin:9px 0 0; font-size:11px; color:var(--ink); overflow-wrap:anywhere; }
+.kanban-card p.kanban-objective,.kanban-card p.kanban-blocked-by { margin:8px 0 0; font-size:11px; color:var(--ink); }
+.kanban-card p.kanban-blocked-by strong { color:var(--coral); }
+.kanban-blocker-done { text-decoration:line-through; color:var(--muted); }
+.kanban-rank { width:max-content; margin-top:9px; padding:3px 7px; border-radius:6px; color:var(--muted); border:1px dashed var(--line); display:block; font-size:10px; font-weight:700; font-variant-numeric:tabular-nums; }
 .kanban-next-step strong { margin-right:4px; color:var(--muted); font-weight:700; }
 .kanban-decision-tag { width:max-content; max-width:100%; margin-top:9px; padding:4px 8px; border-radius:6px; color:var(--coral); border:1px solid var(--coral); display:block; font-size:10px; font-weight:700; overflow-wrap:anywhere; }
 .kanban-decision-tag.decided { color:var(--green); border-color:var(--green); }

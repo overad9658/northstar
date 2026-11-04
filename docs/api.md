@@ -235,16 +235,24 @@ from `GET /api/kanban?teamId=<id>`). Creating a column without
 | `GET` | `/api/kanban/report` | token endpoint | Every card's column history and durations. |
 | `POST` | `/api/kanban/columns` | token endpoint | Create a column: `{ "name" }`. |
 | `PUT`, `DELETE` | `/api/kanban/columns/:id` | token endpoint | Rename (`name`) or reorder (`position`, 0-based on that team's board; the others shift so positions stay 0..n-1) a column, or delete it (and its cards). |
-| `GET` | `/api/kanban/cards` | token endpoint | Each card includes `columnName`. Find cards by `?key=`, `?externalUrl=`, `?projectId=`, `?decision=open`, `?tag=` or `?source=`; add `?archived=include` or `?archived=only` for archived cards. |
+| `GET` | `/api/kanban/cards` | token endpoint | Each card includes `columnName`. Find cards by `?key=`, `?externalUrl=`, `?projectId=`, `?decision=open`, `?tag=` or `?source=`; add `?archived=include` or `?archived=only` for archived cards. `?sort=rank` lists ranked cards by rank (ties by id), then unranked ones by id. |
 | `POST` | `/api/kanban/cards` | token endpoint | Create a card: `columnId` and `title` required. |
 | `GET`, `PUT`, `DELETE` | `/api/kanban/cards/:id` | token endpoint | Read, partially update (including `columnId` to move and `archived: true/false` to archive or restore) or delete a card. |
 | `PUT` | `/api/kanban/cards/upsert` | token endpoint | Create or update a card by `externalUrl` (default) or by its own `key` with `?key=key`. Returns `{ created, card }`. |
+| `PUT` | `/api/kanban/cards/ranks` | token endpoint | Set many ranks at once: `{ "ranks": [{ "id", "rank" }] }` (1–1000 entries; `rank` null clears it). All are written or none. Returns `{ ranks: [{ id, rank, changed }] }`. |
 | `GET` | `/api/kanban/cards/:id/history` | token endpoint | Time spent in each column. |
 | `GET`, `POST` | `/api/kanban/cards/:id/notes` | token endpoint | List notes or add one: `{ "body" }`. |
 | `DELETE` | `/api/kanban/cards/:id/notes/:noteId` | token endpoint | Delete a note. |
 
 Optional card fields: `description`, `assignee`, `externalUrl`, `nextStep`, `decision`,
-`projectId`, `tags`.
+`projectId`, `tags`, `rank`, `objective`, `blockedBy`.
+
+- `rank` is a whole number from 0 to 1000000, or null for none. It is a card's place in a
+  sequence across boards and survives moves between columns. `position`, a card's order inside
+  its column, is set by the board and cannot be sent.
+- `objective` is short text (at most 300 characters).
+- `blockedBy` is a list of other card ids (at most 50). Sending it replaces the stored list; a
+  card cannot block itself, and deleting a card removes it from every list it was on.
 
 ```sh
 curl -X PUT http://localhost:3000/api/kanban/cards/7 \

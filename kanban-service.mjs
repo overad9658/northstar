@@ -70,13 +70,14 @@ function parseDecision(text) {
   try { return JSON.parse(text); } catch { return null; }
 }
 
-const UPDATED_FIELDS = ['title', 'description', 'nextStep', 'externalUrl'];
+const UPDATED_FIELDS = ['title', 'description', 'nextStep', 'externalUrl', 'objective'];
 
 // Records content, decision, assignee and archive changes for the activity feed.
 export function recordCardChanges(db, current, next, actor = '') {
   const insert = db.prepare('INSERT INTO card_changes (card_id, kind, detail, actor) VALUES (?, ?, ?, ?)');
   const record = (kind, detail = {}) => insert.run(current.id, kind, JSON.stringify(detail), String(actor || '').slice(0, 80));
   const fields = UPDATED_FIELDS.filter((field) => (current[field] ?? '') !== (next[field] ?? ''));
+  if (String(current.blockedBy ?? []) !== String(next.blockedBy ?? [])) fields.push('blockedBy');
   if (fields.length) record('updated', { fields });
   const option = next.decision?.decidedOption || '';
   if (option && option !== (current.decision?.decidedOption || '')) record('decided', { option });
@@ -135,6 +136,23 @@ function normalizeTags(value) {
   return [...new Set(tags)];
 }
 
+export const MAX_RANK = 1_000_000;
+
+// A rank is a whole number from 0 to MAX_RANK; null (or '') clears it.
+function normalizeRank(value) {
+  if (value === null || value === '') return null;
+  const rank = typeof value === 'number' || typeof value === 'string' ? Number(value) : NaN;
+  if (!Number.isInteger(rank) || rank < 0 || rank > MAX_RANK) throw new KanbanError(400, `Rank must be a whole number from 0 to ${MAX_RANK}, or null.`);
+  return rank;
+}
+
+// blockedBy is a list of other cards' ids; order and repeats do not matter.
+function normalizeBlockers(value) {
+  if (!Array.isArray(value)) throw new KanbanError(400, 'blockedBy must be a list of card ids.');
+  if (value.length > 50) throw new KanbanError(400, 'A card can name at most 50 blockers.');
+  return [...new Set(value.map((item) => positiveId(item, 'Each blockedBy entry')))].sort((a, b) => a - b);
+}
+
 function timestampMs(value) {
   const text = String(value).replace(' ', 'T');
   return Date.parse(/[zZ]|[+-]\d\d:\d\d$/.test(text) ? text : `${text}Z`);
@@ -152,15 +170,27 @@ export function createKanbanService(db) {
     const insert = db.prepare('INSERT INTO kanban_card_tags (card_id, name) VALUES (?, ?)');
     tags.forEach((tag) => insert.run(cardId, tag));
   };
+  const blockersFor = (cardId) => db.prepare('SELECT blocker_id AS id FROM kanban_card_blockers WHERE card_id = ? ORDER BY blocker_id').all(cardId).map((row) => row.id);
+  // Every blocker must be another existing card; a card cannot block itself.
+  const checkBlockers = (cardId, blockers) => {
+    if (cardId && blockers.includes(cardId)) throw new KanbanError(400, 'A card cannot block itself.');
+    const missing = blockers.filter((blockerId) => !db.prepare('SELECT 1 FROM kanban_cards WHERE id = ?').get(blockerId));
+    if (missing.length) throw new KanbanError(400, `blockedBy names cards that do not exist: ${missing.join(', ')}.`);
+  };
+  const saveBlockers = (cardId, blockers) => {
+    db.prepare('DELETE FROM kanban_card_blockers WHERE card_id = ?').run(cardId);
+    const insert = db.prepare('INSERT INTO kanban_card_blockers (card_id, blocker_id) VALUES (?, ?)');
+    blockers.forEach((blockerId) => insert.run(cardId, blockerId));
+  };
   const column = (id) => {
     const row = db.prepare('SELECT id, name, position, team_id AS teamId FROM kanban_columns WHERE id = ?').get(id);
     if (!row) throw new KanbanError(404, 'Column not found.');
     return row;
   };
   const card = (id) => {
-    const row = db.prepare('SELECT id, column_id AS columnId, project_id AS projectId, team_id AS teamId, title, description, assignee, external_url AS externalUrl, card_key AS key, source, archived, archived_at AS archivedAt, next_step AS nextStep, decision, position, created_at AS createdAt, updated_at AS updatedAt, (SELECT name FROM kanban_columns WHERE id = kanban_cards.column_id) AS columnName FROM kanban_cards WHERE id = ?').get(id);
+    const row = db.prepare('SELECT id, column_id AS columnId, project_id AS projectId, team_id AS teamId, title, description, assignee, external_url AS externalUrl, card_key AS key, source, archived, archived_at AS archivedAt, next_step AS nextStep, decision, position, rank, objective, created_at AS createdAt, updated_at AS updatedAt, (SELECT name FROM kanban_columns WHERE id = kanban_cards.column_id) AS columnName FROM kanban_cards WHERE id = ?').get(id);
     if (!row) throw new KanbanError(404, 'Card not found.');
-    return { ...row, archived: Boolean(row.archived), decision: parseDecision(row.decision), tags: tagsFor(id) };
+    return { ...row, rank: row.rank ?? null, archived: Boolean(row.archived), decision: parseDecision(row.decision), tags: tagsFor(id), blockedBy: blockersFor(id) };
   };
   const projectId = (value) => {
     if (value === null || value === undefined || value === '') return null;
@@ -196,7 +226,7 @@ export function createKanbanService(db) {
       const cards = db.prepare(`
         SELECT c.id, c.column_id AS columnId, c.project_id AS projectId, c.team_id AS teamId, c.title, c.description, c.assignee, c.external_url AS externalUrl,
           c.card_key AS key, c.source, c.archived, c.archived_at AS archivedAt, c.next_step AS nextStep, c.decision,
-          c.position, c.created_at AS createdAt, c.updated_at AS updatedAt,
+          c.position, c.rank, c.objective, c.created_at AS createdAt, c.updated_at AS updatedAt,
           p.name AS projectName, p.project_id AS projectCode,
           (SELECT COUNT(*) FROM kanban_card_notes n WHERE n.card_id = c.id) AS noteCount
         FROM kanban_cards c LEFT JOIN projects p ON p.id = c.project_id
@@ -206,7 +236,13 @@ export function createKanbanService(db) {
       const tags = db.prepare('SELECT card_id AS cardId, name FROM kanban_card_tags ORDER BY name').all();
       const cardTags = new Map();
       tags.forEach((tag) => cardTags.set(tag.cardId, [...(cardTags.get(tag.cardId) || []), tag.name]));
-      cards.forEach((item) => { item.tags = cardTags.get(item.id) || []; item.archived = Boolean(item.archived); item.decision = parseDecision(item.decision); });
+      const cardBlockers = new Map();
+      db.prepare('SELECT card_id AS cardId, blocker_id AS blockerId FROM kanban_card_blockers ORDER BY card_id, blocker_id').all()
+        .forEach((row) => cardBlockers.set(row.cardId, [...(cardBlockers.get(row.cardId) || []), row.blockerId]));
+      cards.forEach((item) => {
+        item.tags = cardTags.get(item.id) || []; item.blockedBy = cardBlockers.get(item.id) || [];
+        item.rank = item.rank ?? null; item.archived = Boolean(item.archived); item.decision = parseDecision(item.decision);
+      });
       return { columns, cards };
     },
     // Every board in `teams` ([{ id, name, includeHidden }]) as one board; see mergeBoards.
@@ -258,12 +294,17 @@ export function createKanbanService(db) {
       const linkedProjectId = projectId(input?.projectId);
       checkProjectTeam(linkedProjectId, teamId);
       const tags = normalizeTags(input?.tags ?? []);
+      const rank = input?.rank === undefined ? null : normalizeRank(input.rank);
+      const objective = optionalText(input?.objective, 'Objective', 300);
+      const blockers = normalizeBlockers(input?.blockedBy ?? []);
+      checkBlockers(null, blockers);
       return transaction(db, () => {
-        const result = uniqueKey(() => db.prepare('INSERT INTO kanban_cards (column_id, project_id, team_id, title, description, assignee, external_url, card_key, source, archived, archived_at, next_step, decision, position) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-          .run(columnId, linkedProjectId, teamId, title, description, assignee, externalUrl, key, source, archived ? 1 : 0, archived ? new Date().toISOString() : null, nextStep, decision ? JSON.stringify(decision) : '', nextPosition('kanban_cards', 'WHERE column_id = ?', columnId)));
+        const result = uniqueKey(() => db.prepare('INSERT INTO kanban_cards (column_id, project_id, team_id, title, description, assignee, external_url, card_key, source, archived, archived_at, next_step, decision, position, rank, objective) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+          .run(columnId, linkedProjectId, teamId, title, description, assignee, externalUrl, key, source, archived ? 1 : 0, archived ? new Date().toISOString() : null, nextStep, decision ? JSON.stringify(decision) : '', nextPosition('kanban_cards', 'WHERE column_id = ?', columnId), rank, objective));
         db.prepare('INSERT INTO kanban_card_history (card_id, column_id, column_name, entered_at) VALUES (?, ?, ?, ?)')
           .run(result.lastInsertRowid, columnId, column(columnId).name, new Date().toISOString());
         saveTags(result.lastInsertRowid, tags);
+        saveBlockers(result.lastInsertRowid, blockers);
         return card(result.lastInsertRowid);
       });
     },
@@ -285,6 +326,10 @@ export function createKanbanService(db) {
       const linkedProjectId = input?.projectId === undefined ? current.projectId : projectId(input.projectId);
       checkProjectTeam(linkedProjectId, current.teamId);
       const tags = input?.tags === undefined ? null : normalizeTags(input.tags);
+      const rank = input?.rank === undefined ? current.rank : normalizeRank(input.rank);
+      const objective = input?.objective === undefined ? current.objective : optionalText(input.objective, 'Objective', 300);
+      const blockers = input?.blockedBy === undefined ? null : normalizeBlockers(input.blockedBy);
+      if (blockers) checkBlockers(id, blockers);
       const position = columnId === current.columnId ? current.position : nextPosition('kanban_cards', 'WHERE column_id = ?', columnId);
       return transaction(db, () => {
         if (columnId !== current.columnId) {
@@ -293,15 +338,18 @@ export function createKanbanService(db) {
           db.prepare('INSERT INTO kanban_card_history (card_id, column_id, column_name, entered_at) VALUES (?, ?, ?, ?)')
             .run(id, columnId, column(columnId).name, movedAt);
         }
-        uniqueKey(() => db.prepare('UPDATE kanban_cards SET column_id = ?, project_id = ?, title = ?, description = ?, assignee = ?, external_url = ?, card_key = ?, source = ?, archived = ?, archived_at = ?, next_step = ?, decision = ?, position = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
-          .run(columnId, linkedProjectId, title, description, assignee, externalUrl, key, source, archived ? 1 : 0, archivedAt, nextStep, decision ? JSON.stringify(decision) : '', position, id));
+        uniqueKey(() => db.prepare('UPDATE kanban_cards SET column_id = ?, project_id = ?, title = ?, description = ?, assignee = ?, external_url = ?, card_key = ?, source = ?, archived = ?, archived_at = ?, next_step = ?, decision = ?, position = ?, rank = ?, objective = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+          .run(columnId, linkedProjectId, title, description, assignee, externalUrl, key, source, archived ? 1 : 0, archivedAt, nextStep, decision ? JSON.stringify(decision) : '', position, rank, objective, id));
         if (tags) saveTags(id, tags);
+        if (blockers) saveBlockers(id, blockers);
         const updated = card(id);
         recordCardChanges(db, current, updated, actor);
         return updated;
       });
     },
-    findCards({ key, externalUrl, projectId: linkedProjectId, decision, tag, source, archived, includeHidden = false } = {}) {
+    // sort "rank": ranked cards by rank (ties by id), then unranked cards by id. Without it, board order.
+    findCards({ key, externalUrl, projectId: linkedProjectId, decision, tag, source, archived, sort, includeHidden = false } = {}) {
+      if (sort !== undefined && sort !== 'rank') throw new KanbanError(400, 'sort must be "rank".');
       const conditions = [archivedCondition(archived), includeHidden ? '' : '(p.id IS NULL OR p.hidden_from_read_only = 0)'].filter(Boolean);
       const params = [];
       if (tag !== undefined) { conditions.push('EXISTS (SELECT 1 FROM kanban_card_tags t WHERE t.card_id = c.id AND t.name = ?)'); params.push(normalizeTags([tag])[0]); }
@@ -314,9 +362,28 @@ export function createKanbanService(db) {
         conditions.push("c.decision != ''");
       }
       const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-      return db.prepare(`SELECT c.id FROM kanban_cards c LEFT JOIN projects p ON p.id = c.project_id ${where} ORDER BY c.column_id, c.position, c.id`)
+      const order = sort === 'rank' ? 'CASE WHEN c.rank IS NULL THEN 1 ELSE 0 END, c.rank, c.id' : 'c.column_id, c.position, c.id';
+      return db.prepare(`SELECT c.id FROM kanban_cards c LEFT JOIN projects p ON p.id = c.project_id ${where} ORDER BY ${order}`)
         .all(...params).map((row) => card(row.id))
         .filter((item) => decision === undefined || !item.decision?.decidedOption);
+    },
+    // Sets many cards' ranks at once ([{ id, rank }], rank null clears it): all of them or none.
+    // canEdit(card) decides whether the caller may change that card; a refused card fails the whole call.
+    setRanks(entries, { canEdit = () => true } = {}) {
+      if (!Array.isArray(entries) || entries.length < 1 || entries.length > 1000) throw new KanbanError(400, 'ranks must be a list of 1–1000 { id, rank } entries.');
+      const changes = entries.map((entry) => {
+        if (!entry || typeof entry !== 'object' || Array.isArray(entry)) throw new KanbanError(400, 'Each ranks entry must be an object { id, rank }.');
+        if (entry.rank === undefined) throw new KanbanError(400, 'Each ranks entry needs a rank (null clears it).');
+        return { id: positiveId(entry.id, 'Card'), rank: normalizeRank(entry.rank) };
+      });
+      if (new Set(changes.map((item) => item.id)).size !== changes.length) throw new KanbanError(400, 'Each card can appear once in ranks.');
+      return transaction(db, () => {
+        const current = changes.map((item) => card(item.id));
+        current.forEach((item) => canEdit(item));
+        const write = db.prepare('UPDATE kanban_cards SET rank = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?');
+        changes.forEach((item, index) => { if (current[index].rank !== item.rank) write.run(item.rank, item.id); });
+        return changes.map((item, index) => ({ id: item.id, rank: item.rank, changed: current[index].rank !== item.rank }));
+      });
     },
     // Creates the card, or updates the one card matching `key` (the card key or externalUrl); repeating a request changes nothing.
     upsertCard(input, { key: matchOn = 'externalUrl', ...options } = {}) {

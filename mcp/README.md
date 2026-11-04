@@ -45,7 +45,7 @@ The token comes from your environment, so it is not written into the file:
 |---|---|---|
 | `list_projects` | read | List projects, optionally by `projectId`, `externalUrl` or `stage` (`Idea` lists the ideas) |
 | `get_project` | read | One project by `id` |
-| `list_cards` | read | Kanban cards across boards by `key`, `externalUrl`, `projectId`, `teamId`, `assignee`, `tag`, `source` or `decision: "open"`. Archived cards appear only with `archived: "include"` or `"only"`. |
+| `list_cards` | read | Kanban cards across boards by `key`, `externalUrl`, `projectId`, `teamId`, `assignee`, `tag`, `source` or `decision: "open"`. Archived cards appear only with `archived: "include"` or `"only"`. `sort: "rank"` orders by rank, unranked last. |
 | `get_card_by_key` | read | One card by its stable `key` |
 | `get_board` | read | A team's board (`teamId`; the first team's board if omitted), or every board with `team: "all"` |
 | `audit_board` | read | Problems across every board, as a list. You name the active columns (`activeColumns`) and, optionally, assignee spellings to fix (`assigneeVariants: {"from": "to"}`). See [The board audit](#the-board-audit). |
@@ -57,7 +57,8 @@ The token comes from your environment, so it is not written into the file:
 | `apply_view` | read | The projects a saved view shows (by `id` or `name`), in its order |
 | `upsert_project` | write | Create, or update by `key` (`projectId` or `externalUrl`) |
 | `move_project` | write | Set impact and urgency (1–10), with an optional comment |
-| `upsert_card` | write | Create, or update the card matched by `externalUrl` (default) or, with `key: "key"`, by its own card key. Place it with `team` (name or id) and `column` (name), or a raw `card.columnId`. |
+| `upsert_card` | write | Create, or update the card matched by `externalUrl` (default) or, with `key: "key"`, by its own card key. Place it with `team` (name or id) and `column` (name), or a raw `card.columnId`. `card.rank`, `card.objective` and `card.blockedBy` (card ids) are stored too. |
+| `set_ranks` | write | Set many cards' `rank` in one call (`ranks: [{id, rank}]`, `rank` null clears it); all are written or none |
 | `move_card` | write | Move a card (by `id`, `key` or `externalUrl`) to a column on its own board, by name, and optionally record its project's status (`projectStatus`) |
 | `archive_card`, `restore_card` | write | Archive a card or bring it back |
 | `add_card_note` | write | Add a note to a card |
