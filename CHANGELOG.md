@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.1](https://github.com/overad9658/northstar/compare/v1.2.0...v1.2.1) (2026-11-05)
+
+
+### Bug Fixes
+
+* add missing service to dockerfile ([c0f5697](https://github.com/overad9658/northstar/commit/c0f5697171a37cdfec61bd0aa32488035bca6f38))
+
 ## [1.2.0](https://github.com/overad9658/northstar/compare/v1.1.0...v1.2.0) (2026-11-05)
 
 
