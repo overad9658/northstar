@@ -158,17 +158,33 @@ release succeeds, run **Build and publish container** manually and enter the exi
 
 ### Dependabot PR manager
 
-The **Group and close Dependabot PRs** workflow combines open Node dependency updates into
-one PR on the first day of each month at 09:00 UTC. You can also run it manually. Review and
-merge the combined PR as usual. To close the individual Dependabot PRs, comment exactly
-`[dependabot-pr-manager] close prs` on the combined PR using an account with write access.
+Run the Python PR manager locally from this checkout. It uses the GitHub API and Git to combine
+root npm and GitHub Actions updates already proposed by Dependabot. The script does not run pnpm
+or download an npm manager package. Authenticate with `gh auth login`, or set
+`DEPENDABOT_PR_MANAGER_TOKEN` or `GH_TOKEN` to a token with Contents and Pull requests
+read/write access. Git must also be able to push to `origin`. Then run:
 
-Add a repository Actions secret named `DEPENDABOT_PR_MANAGER_TOKEN` with Contents and Pull
-requests read/write access. Use a GitHub App token or personal access token that can create
-PRs and trigger the normal PR checks; the built-in `GITHUB_TOKEN` does not trigger those
-checks on PRs it creates. The workflow uses pnpm and updates `package.json` and
-`pnpm-lock.yaml` in the combined PR. It processes existing Dependabot PRs; configure
-Dependabot separately if you want scheduled version update PRs.
+```sh
+python3 support/dependabot-pr-manager.py group
+```
+
+Review and merge the combined PR as usual. Once it is merged, close the individual Dependabot
+PRs by passing the combined PR's number:
+
+```sh
+python3 support/dependabot-pr-manager.py close 123
+```
+
+The script checks that the supplied PR is the merged combined PR for this repository and closes
+only the individual PRs recorded in it. Pass `--repo OWNER/REPO` when closing PRs if the `origin`
+remote does not identify the target repository; grouping requires `origin` to point to that
+GitHub repository. Pass `--dry-run` to preview an operation. Grouping combines root
+`package.json` and `pnpm-lock.yaml` changes, GitHub Actions workflow YAML files, and a root
+`action.yml` or `action.yaml`.
+It stops without pushing if file changes conflict; resolve those PRs manually. PRs that change
+other files, add or delete workflow files, or change `package.json` without the lockfile are
+skipped. The script processes existing Dependabot PRs; configure Dependabot separately if you
+want scheduled version update PRs.
 
 ## Authentication and roles
 
