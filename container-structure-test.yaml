@@ -1,0 +1,36 @@
+schemaVersion: 2.0.0
+
+commandTests:
+  - name: Node.js runtime is available
+    command: node
+    args: ["--version"]
+    expectedOutput: ["^v24\\."]
+
+fileExistenceTests:
+  - name: Application entry point is present
+    path: /app/server.mjs
+    shouldExist: true
+    uid: 1000
+    gid: 1000
+  - name: Static assets are present
+    path: /app/public/index.html
+    shouldExist: true
+  - name: Data directory is present
+    path: /data
+    shouldExist: true
+    uid: 1000
+    gid: 1000
+
+metadataTest:
+  envVars:
+    - key: NODE_ENV
+      value: production
+    - key: DATA_DIR
+      value: /data
+    - key: PORT
+      value: "3000"
+  cmd: ["node", "server.mjs"]
+  exposedPorts: ["3000"]
+  volumes: ["/data"]
+  workdir: /app
+  user: node

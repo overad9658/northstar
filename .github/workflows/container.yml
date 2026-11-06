@@ -77,6 +77,26 @@ jobs:
             type=sha
             type=raw,value=latest,enable=${{ (inputs.release-tag != '' || startsWith(github.ref, 'refs/tags/v')) && !contains(inputs.release-tag || github.ref_name, '-') }}
 
+      - name: Build image for structure tests
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: northstar:structure-test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Install container-structure-test
+        run: |
+          curl --fail --location --silent --show-error \
+            --output /tmp/container-structure-test \
+            https://github.com/GoogleContainerTools/container-structure-test/releases/download/v1.22.1/container-structure-test-linux-amd64
+          chmod +x /tmp/container-structure-test
+
+      - name: Test container structure
+        run: /tmp/container-structure-test test --image northstar:structure-test --config container-structure-test.yaml
+
       - name: Build and publish image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
