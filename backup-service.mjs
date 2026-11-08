@@ -30,11 +30,14 @@ function validateBackupDocument(input) {
   if (input.kanbanCardTags !== undefined && (!Array.isArray(input.kanbanCardTags) || input.kanbanCardTags.length > 2_000_000)) throw new Error('The backup contains invalid kanban card tags.');
   if (input.projectChanges !== undefined && (!Array.isArray(input.projectChanges) || input.projectChanges.length > 1_000_000)) throw new Error('The backup contains invalid project changes.');
   if (input.cardChanges !== undefined && (!Array.isArray(input.cardChanges) || input.cardChanges.length > 1_000_000)) throw new Error('The backup contains invalid card changes.');
+  for (const [name, limit] of Object.entries({ okrObjectives: 10_000, okrKeyResults: 100_000, okrProjectLinks: 500_000, okrTaskLinks: 500_000 })) {
+    if (input[name] !== undefined && (!Array.isArray(input[name]) || input[name].length > limit)) throw new Error(`The backup contains invalid ${name} records.`);
+  }
   const totalCapacity = Number(input.settings?.totalCapacity);
   if (!Number.isInteger(totalCapacity) || totalCapacity < 0 || totalCapacity > 9999) {
     throw new Error('The backup contains an invalid team capacity.');
   }
-  return { ...input, teams: input.teams || [], teamMembers: input.teamMembers || [], kanbanColumns: input.kanbanColumns || [], kanbanCards: input.kanbanCards || [], kanbanCardNotes: input.kanbanCardNotes || [], kanbanCardHistory: input.kanbanCardHistory || [], kanbanCardTags: input.kanbanCardTags || [], projectChanges: input.projectChanges || [], cardChanges: input.cardChanges || [], totalCapacity };
+  return { ...input, teams: input.teams || [], teamMembers: input.teamMembers || [], kanbanColumns: input.kanbanColumns || [], kanbanCards: input.kanbanCards || [], kanbanCardNotes: input.kanbanCardNotes || [], kanbanCardHistory: input.kanbanCardHistory || [], kanbanCardTags: input.kanbanCardTags || [], projectChanges: input.projectChanges || [], cardChanges: input.cardChanges || [], okrObjectives: input.okrObjectives || [], okrKeyResults: input.okrKeyResults || [], okrProjectLinks: input.okrProjectLinks || [], okrTaskLinks: input.okrTaskLinks || [], totalCapacity };
 }
 
 function prepareRestoreStatements(db) {
@@ -68,6 +71,10 @@ function prepareRestoreStatements(db) {
     kanbanTag: db.prepare('INSERT INTO kanban_card_tags (card_id, name) VALUES (?, ?)'),
     projectChange: db.prepare('INSERT INTO project_changes (id, project_id, field, from_value, to_value, note, actor, changed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'),
     cardChange: db.prepare('INSERT INTO card_changes (id, card_id, kind, detail, actor, changed_at) VALUES (?, ?, ?, ?, ?, ?)'),
+    okrObjective: db.prepare('INSERT INTO okr_objectives (id, title, description, period, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'),
+    okrKeyResult: db.prepare('INSERT INTO okr_key_results (id, objective_id, title, target, current, position) VALUES (?, ?, ?, ?, ?, ?)'),
+    okrProjectLink: db.prepare('INSERT INTO okr_project_links (key_result_id, project_id) VALUES (?, ?)'),
+    okrTaskLink: db.prepare('INSERT INTO okr_task_links (key_result_id, card_id) VALUES (?, ?)'),
   };
 }
 
@@ -111,6 +118,10 @@ function insertBackupRows(db, backup) {
   for (const row of backup.planningSessions) insert.session.run(row.id, row.token, row.leader_key, row.project_id, row.status, row.final_impact, row.final_urgency, row.final_confidence, row.final_effort, row.guest_access ?? 1, row.created_at, row.decided_at);
   for (const row of backup.planningSessionProjects) insert.sessionProject.run(row.session_id, row.project_id, row.position, row.status, row.revealed ?? 0, row.final_impact, row.final_urgency, row.final_confidence, row.final_effort, row.move_comment ?? '', row.decided_at);
   for (const row of backup.planningVotes) insert.vote.run(row.id, row.session_id, row.project_id, row.voter_token, row.voter_name, row.impact, row.urgency, row.confidence, row.effort, row.updated_at);
+  for (const row of backup.okrObjectives) insert.okrObjective.run(row.id, row.title, row.description, row.period, row.created_at, row.updated_at);
+  for (const row of backup.okrKeyResults) insert.okrKeyResult.run(row.id, row.objective_id, row.title, row.target, row.current, row.position);
+  for (const row of backup.okrProjectLinks) insert.okrProjectLink.run(row.key_result_id, row.project_id);
+  for (const row of backup.okrTaskLinks) insert.okrTaskLink.run(row.key_result_id, row.card_id);
 }
 
 function verifyPortfolioConstraints(db) {
@@ -154,6 +165,10 @@ export function createBackupService(db) {
         kanbanCardTags: db.prepare('SELECT * FROM kanban_card_tags ORDER BY card_id, name').all(),
         projectChanges: db.prepare('SELECT * FROM project_changes ORDER BY id').all(),
         cardChanges: db.prepare('SELECT * FROM card_changes ORDER BY id').all(),
+        okrObjectives: db.prepare('SELECT * FROM okr_objectives ORDER BY id').all(),
+        okrKeyResults: db.prepare('SELECT * FROM okr_key_results ORDER BY objective_id, position, id').all(),
+        okrProjectLinks: db.prepare('SELECT * FROM okr_project_links ORDER BY key_result_id, project_id').all(),
+        okrTaskLinks: db.prepare('SELECT * FROM okr_task_links ORDER BY key_result_id, card_id').all(),
       };
     },
 
@@ -162,6 +177,10 @@ export function createBackupService(db) {
       try {
         transaction(db, () => {
           db.exec(`
+            DELETE FROM okr_task_links;
+            DELETE FROM okr_project_links;
+            DELETE FROM okr_key_results;
+            DELETE FROM okr_objectives;
             DELETE FROM card_changes;
             DELETE FROM project_changes;
             DELETE FROM kanban_card_tags;
@@ -176,7 +195,7 @@ export function createBackupService(db) {
             DELETE FROM projects;
             DELETE FROM teams;
           `);
-          if (db.dialect !== 'postgres') db.exec("DELETE FROM sqlite_sequence WHERE name IN ('projects', 'teams', 'project_moves', 'planning_sessions', 'planning_votes', 'kanban_columns', 'kanban_cards', 'kanban_card_notes', 'kanban_card_history', 'project_changes', 'card_changes')");
+          if (db.dialect !== 'postgres') db.exec("DELETE FROM sqlite_sequence WHERE name IN ('projects', 'teams', 'project_moves', 'planning_sessions', 'planning_votes', 'kanban_columns', 'kanban_cards', 'kanban_card_notes', 'kanban_card_history', 'project_changes', 'card_changes', 'okr_objectives', 'okr_key_results')");
           db.prepare('UPDATE portfolio_settings SET total_capacity = ? WHERE id = 1').run(backup.totalCapacity);
           insertBackupRows(db, backup);
           db.prepare('UPDATE portfolio_settings SET total_capacity = (SELECT COALESCE(SUM(capacity), 0) FROM teams) WHERE id = 1').run();

@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="description" content="Track objectives, key results, projects, and tasks.">
+    <title>OKRs — Northstar</title>
+    <link rel="icon" href="/favicon.svg">
+    <script src="/theme.js"></script>
+    <link rel="stylesheet" href="/styles.css">
+    <script src="/okrs.js" type="module"></script>
+  </head>
+  <body>
+    <main class="app-shell okr-shell">
+      <header class="topbar">
+        <a class="brand" href="/" aria-label="Northstar home"><span class="brand-mark">N</span><span>Northstar</span></a>
+        <div class="topbar-actions"><button class="theme-toggle" data-theme-toggle type="button" aria-label="Switch to dark mode" aria-pressed="false"><span class="theme-icon-light" aria-hidden="true">☀</span><span class="theme-icon-dark" aria-hidden="true">☾</span></button><a class="button secondary button-link" href="/">← Priority matrix</a></div>
+      </header>
+      <section class="okr-intro">
+        <div><p class="eyebrow">Goals and outcomes</p><h1>Objectives &amp; key results</h1><p class="subtitle">Set a direction, measure progress, and connect the projects and tasks that move it forward.</p></div>
+        <button class="button primary" id="add-objective" type="button" hidden>+ Add objective</button>
+      </section>
+      <p class="form-error" id="okr-error" role="alert"></p>
+      <section id="okr-list" class="okr-list" aria-label="Objectives"></section>
+    </main>
+    <dialog id="objective-dialog" class="okr-dialog" aria-labelledby="objective-dialog-title">
+      <form id="objective-form">
+        <header class="dialog-head"><div><p class="eyebrow">Objective</p><h2 id="objective-dialog-title">Add objective</h2></div><button class="icon-button" data-close type="button" aria-label="Close">×</button></header>
+        <label class="field wide"><span>Objective</span><input name="title" maxlength="200" required placeholder="What do we want to achieve?"></label>
+        <label class="field wide"><span>Time period <small>Optional</small></span><input name="period" maxlength="80" placeholder="e.g. Q1 2027"></label>
+        <label class="field wide"><span>Description <small>Optional</small></span><textarea name="description" maxlength="2000" rows="3" placeholder="Why does this matter?"></textarea></label>
+        <p class="form-error" role="alert"></p>
+        <footer class="dialog-actions"><button class="delete-button" data-delete type="button" hidden>Delete objective</button><span></span><button class="button secondary" data-close type="button">Cancel</button><button class="button primary" type="submit">Save objective</button></footer>
+      </form>
+    </dialog>
+    <dialog id="result-dialog" class="okr-dialog" aria-labelledby="result-dialog-title">
+      <form id="result-form">
+        <header class="dialog-head"><div><p class="eyebrow">Measured outcome</p><h2 id="result-dialog-title">Add key result</h2></div><button class="icon-button" data-close type="button" aria-label="Close">×</button></header>
+        <label class="field wide"><span>Key result</span><input name="title" maxlength="200" required placeholder="What measurable result shows success?"></label>
+        <div class="okr-number-fields"><label class="field"><span>Current</span><input name="current" type="number" min="0" max="1000000000" step="1" value="0" required></label><label class="field"><span>Target</span><input name="target" type="number" min="1" max="1000000000" step="1" value="100" required></label></div>
+        <p class="form-error" role="alert"></p>
+        <footer class="dialog-actions"><button class="delete-button" data-delete type="button" hidden>Delete key result</button><span></span><button class="button secondary" data-close type="button">Cancel</button><button class="button primary" type="submit">Save key result</button></footer>
+      </form>
+    </dialog>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  </body>
+</html>

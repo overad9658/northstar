@@ -11,6 +11,7 @@ import { ActivityError, createActivityService } from './activity-service.mjs';
 import { createEventsService } from './events-service.mjs';
 import { createFailureLimiter, positiveInteger } from './rate-limit.mjs';
 import { createTodoService } from './todo-service.mjs';
+import { createOkrService, OkrError } from './okr-service.mjs';
 import { readFile } from 'node:fs/promises';
 
 // The docs page reads these two files and nothing else; no part of the request reaches the filesystem.
@@ -42,6 +43,7 @@ export function createApi(db, { apiToken = process.env.API_TOKEN, tokenFailuresP
   const teams = createTeamService(db);
   const kanban = createKanbanService(db);
   const todos = createTodoService(db);
+  const okrs = createOkrService(db);
   const activity = createActivityService(db);
   const events = createEventsService({ projects, kanban, teams });
   const dataApi = createDataApi(db, projects, { apiToken });
@@ -192,6 +194,23 @@ export function createApi(db, { apiToken = process.env.API_TOKEN, tokenFailuresP
         }
       } else requireUser(req);
       const requireUserAdmin = () => { if (user.role !== 'admin') throw new AuthError(403, 'Admin access is required.'); };
+      const okrMatch = url.pathname.match(/^\/api\/okrs(?:\/(options|\d+)(?:\/(key-results)(?:\/(\d+)(?:\/(projects|tasks)(?:\/(\d+))?)?)?)?)?$/);
+      if (okrMatch) {
+        res.setHeader('cache-control', 'no-store');
+        const [, first, section, resultId, linkType, linkedId] = okrMatch;
+        if (req.method === 'GET' && !first) return json(res, 200, okrs.list(user)), true;
+        if (req.method === 'GET' && first === 'options') return json(res, 200, okrs.options(user)), true;
+        if (user.role === 'read_only') throw new AuthError(403, 'Editing OKRs requires a team manager or admin account.');
+        if (req.method === 'POST' && !first) return json(res, 201, { id: okrs.createObjective(await readJson(req)) }), true;
+        if (req.method === 'PUT' && first && !section) { okrs.updateObjective(first, await readJson(req)); return json(res, 200, { ok: true }), true; }
+        if (req.method === 'DELETE' && first && !section) { okrs.deleteObjective(first); res.writeHead(204); res.end(); return true; }
+        if (req.method === 'POST' && section && !resultId) return json(res, 201, { id: okrs.createResult(first, await readJson(req)) }), true;
+        if (req.method === 'PUT' && resultId && !linkType) { okrs.updateResult(first, resultId, await readJson(req)); return json(res, 200, { ok: true }), true; }
+        if (req.method === 'DELETE' && resultId && !linkType) { okrs.deleteResult(first, resultId); res.writeHead(204); res.end(); return true; }
+        if (req.method === 'POST' && linkType && !linkedId) { okrs.link(first, resultId, linkType, (await readJson(req)).id, user); return json(res, 201, { ok: true }), true; }
+        if (req.method === 'DELETE' && linkType && linkedId) { okrs.unlink(first, resultId, linkType, linkedId, user); res.writeHead(204); res.end(); return true; }
+        return json(res, 405, { error: 'Method not allowed.' }), true;
+      }
       // Kanban boards belong to teams. A request names its board with ?teamId; without it, list and
       // column calls use the first team's board, and card calls use the card's own team.
       const requestedTeamId = Number(url.searchParams.get('teamId')) || null;
@@ -382,7 +401,7 @@ export function createApi(db, { apiToken = process.env.API_TOKEN, tokenFailuresP
       }
       return json(res, 405, { error: 'Method not allowed.' }), true;
     } catch (error) {
-      const status = error instanceof PlanningError || error instanceof ProjectError || error instanceof AuthError || error instanceof KanbanError || error instanceof ActivityError ? error.status : 400;
+      const status = error instanceof PlanningError || error instanceof ProjectError || error instanceof AuthError || error instanceof KanbanError || error instanceof ActivityError || error instanceof OkrError ? error.status : 400;
       const details = error instanceof PlanningError ? error.data : {};
       json(res, status, { error: error instanceof Error ? error.message : 'Request failed.', ...details });
       return true;

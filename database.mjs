@@ -191,6 +191,33 @@ function createRelatedTables(db) {
     );
     CREATE INDEX IF NOT EXISTS idx_kanban_cards_column_position ON kanban_cards(column_id, position, id);
     CREATE INDEX IF NOT EXISTS idx_kanban_cards_project ON kanban_cards(project_id);
+    CREATE TABLE IF NOT EXISTS okr_objectives (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL CHECK(length(title) BETWEEN 1 AND 200),
+      description TEXT NOT NULL DEFAULT '',
+      period TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS okr_key_results (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      objective_id INTEGER NOT NULL REFERENCES okr_objectives(id) ON DELETE CASCADE,
+      title TEXT NOT NULL CHECK(length(title) BETWEEN 1 AND 200),
+      target INTEGER NOT NULL DEFAULT 100 CHECK(target > 0),
+      current INTEGER NOT NULL DEFAULT 0 CHECK(current >= 0),
+      position INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_okr_results_objective ON okr_key_results(objective_id, position, id);
+    CREATE TABLE IF NOT EXISTS okr_project_links (
+      key_result_id INTEGER NOT NULL REFERENCES okr_key_results(id) ON DELETE CASCADE,
+      project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      PRIMARY KEY (key_result_id, project_id)
+    );
+    CREATE TABLE IF NOT EXISTS okr_task_links (
+      key_result_id INTEGER NOT NULL REFERENCES okr_key_results(id) ON DELETE CASCADE,
+      card_id INTEGER NOT NULL REFERENCES kanban_cards(id) ON DELETE CASCADE,
+      PRIMARY KEY (key_result_id, card_id)
+    );
     CREATE TABLE IF NOT EXISTS kanban_card_tags (
       card_id INTEGER NOT NULL REFERENCES kanban_cards(id) ON DELETE CASCADE,
       name TEXT NOT NULL CHECK(length(name) BETWEEN 1 AND 40),
