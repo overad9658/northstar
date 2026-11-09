@@ -59,6 +59,79 @@ docker compose down
 
 `docker compose down -v` also removes the saved database.
 
+## Run your own Northstar
+
+These steps are for a teammate who forks this repository and runs a private copy on their own machine.
+
+### Prerequisites
+
+- Docker, for the app.
+- Node.js 22.13 or later and pnpm 11.19.0, only if you connect an agent through the MCP server, which runs on your machine and not in the container.
+
+### Clone and first start
+
+Fork the repository on GitHub, then clone your fork and start it:
+
+```sh
+git clone https://github.com/<you>/northstar.git
+cd northstar
+docker compose up -d --build
+```
+
+Open [http://localhost:3000](http://localhost:3000) and create the first admin account. Signup stays off
+unless you set `SIGNUP_ALLOWED=true`.
+
+### Where your data lives
+
+Everything is saved in the `northstar-data` Docker volume on your machine (`/data` inside the container).
+It is never pushed with your fork: `.gitignore` excludes database, backup and export files, and
+`support/check-data.mjs` fails the checks if one is ever tracked. `docker compose down` keeps the
+volume; `docker compose down -v` deletes it.
+
+### Connect Claude Code through the MCP server
+
+1. In Northstar, open **Menu → API tokens** and create a named token: **read** for an agent that only
+   reports, **write** for one that updates projects and cards. The token is shown once; Northstar stores
+   only its hash.
+2. Install the MCP server's dependencies:
+
+   ```sh
+   cd mcp
+   pnpm install --frozen-lockfile
+   ```
+
+3. Put the token in your shell environment as `NORTHSTAR_TOKEN`, then add the server to Claude Code with
+   the `.mcp.json` entry from the [MCP server guide](mcp/README.md#mcpjson), using the full path to
+   `mcp/index.mjs` in your clone. The entry reads the token from your environment, so it never sits in
+   the file. `NORTHSTAR_URL` defaults to `http://127.0.0.1:3000`; set `NORTHSTAR_TOKEN_SCOPE=read` to offer
+   read tools only.
+4. Restart Claude Code and check that the `northstar` server is connected with `/mcp`.
+
+### Backups
+
+Use **Data** in the header to export a JSON backup, and restore it from the same place. A write token can
+also download one with `GET /api/backup`:
+
+```sh
+curl -H "Authorization: Bearer $NORTHSTAR_TOKEN" http://localhost:3000/api/backup -o northstar-backup.json
+```
+
+A backup covers the portfolio, boards, history and progress data. Accounts, sign-in sessions, API tokens
+and SSO settings are not in it and must be set up again after a restore on a new install. Keep backup
+files outside your clone.
+
+### Keep your fork current
+
+On GitHub, open your fork and choose **Sync fork → Update branch**, or run `gh repo sync <you>/northstar`.
+Then pull and rebuild:
+
+```sh
+git pull
+docker compose up -d --build
+```
+
+Your data stays in the volume across rebuilds.
+
 ## Run without Docker
 
 Use Node.js 22.13 or later and pnpm 11.19.0.
