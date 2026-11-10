@@ -1,6 +1,6 @@
 // WCAG contrast ratios for the Progress page, computed from the CSS color tokens in both themes.
 // Text needs 4.5:1 (AA); lines, dots and other graphics need 3:1. `node support/progress-contrast.mjs`
-// prints the table; progress-contrast.test.mjs fails when a pair drops below its minimum.
+// prints the table; tests/progress-contrast.test.mjs fails when a pair drops below its minimum.
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 

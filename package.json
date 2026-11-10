@@ -10,8 +10,8 @@
   "scripts": {
     "dev": "node --watch server.mjs",
     "start": "node server.mjs",
-    "test": "node --test",
-    "check": "node support/check-syntax.mjs && node support/check-data.mjs && node --test",
+    "test": "node --test tests/*.test.mjs",
+    "check": "node support/check-syntax.mjs && node support/check-data.mjs && node --test tests/*.test.mjs",
     "sbom": "sh support/generate-sbom.sh"
   },
   "dependencies": {
