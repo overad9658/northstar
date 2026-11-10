@@ -11,7 +11,7 @@
   --seq-mark-0:#e08a97; --seq-mark-1:#8fa9e6; --seq-mark-2:#7fc4b9; --seq-mark-3:#d9b26a; --seq-mark-4:#b0a3e3; --seq-mark-5:#9aa6a1;
 }
 
-.seq { max-width:1240px; margin:32px auto 0; display:flex; flex-direction:column; gap:20px; }
+.seq { margin:32px auto 0; display:flex; flex-direction:column; gap:20px; }
 .seq :focus-visible { outline:2px solid var(--seq-you); outline-offset:2px; }
 .seq a { color:inherit; text-decoration:none; }
 .seq a:hover { color:var(--seq-you); }

@@ -1,4 +1,4 @@
-.kanban-shell { max-width:1600px; height:100dvh; margin:auto; padding-bottom:20px; display:flex; flex-direction:column; }
+.kanban-shell { height:100dvh; margin:auto; padding-bottom:20px; display:flex; flex-direction:column; }
 .kanban-shell>* { flex:none; }
 .kanban-intro { padding:44px 0 30px; display:flex; justify-content:space-between; align-items:end; gap:30px; }
 .kanban-intro h1 { font-size:clamp(40px,5vw,58px); }

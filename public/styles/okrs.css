@@ -1,4 +1,4 @@
-.okr-shell { max-width:1440px; margin:auto; }
+.okr-shell { margin:auto; }
 .okr-intro { padding:38px 0 30px; display:flex; align-items:end; justify-content:space-between; gap:24px; }
 .okr-intro h1 { max-width:none; }
 .okr-intro .subtitle { max-width:650px; line-height:1.5; }
