@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.3](https://github.com/overad9658/northstar/compare/v1.4.2...v1.4.3) (2026-11-10)
+
+
+### Bug Fixes
+
+* keep the mobile menu visible on iOS ([1af5daa](https://github.com/overad9658/northstar/commit/1af5daa70258c56be8e3e89a771c05862dfad99a))
+
 ## [1.4.2](https://github.com/overad9658/northstar/compare/v1.4.1...v1.4.2) (2026-11-10)
 
 
