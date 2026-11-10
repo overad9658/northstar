@@ -51,3 +51,44 @@ test('columns reorder by position within their own team board', async (t) => {
     assert.equal((await send(`/api/kanban/columns/${a.id}${board(platform.id)}`, 'PUT', body)).status, 400, JSON.stringify(body));
   }
 });
+
+test('only admins and the team manager can reorder columns, and a move reaches other viewers', async (t) => {
+  const dataDir = await mkdtemp(join(tmpdir(), 'northstar-column-order-auth-'));
+  const port = await freePort();
+  const child = await startServer(dataDir, port, { AUTH_DISABLED: 'false' });
+  t.after(async () => { await stopServer(child); await rm(dataDir, { recursive: true, force: true }); });
+  const base = `http://127.0.0.1:${port}`;
+  const send = (path, method = 'GET', body, cookie) => fetch(`${base}${path}`, {
+    method, headers: { ...(cookie ? { cookie } : {}), ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const read = (path, cookie) => send(path, 'GET', undefined, cookie).then((response) => response.json());
+  const login = async (username, password) => (await send('/api/auth/login', 'POST', { username, password })).headers.get('set-cookie').split(';', 1)[0];
+
+  const admin = (await send('/api/auth/setup', 'POST', { username: 'owner', password: 'correct horse battery staple' })).headers.get('set-cookie').split(';', 1)[0];
+  const managerUser = await send('/api/users', 'POST', { username: 'manager', password: 'manager password 123', role: 'team_manager' }, admin).then((response) => response.json());
+  const memberUser = await send('/api/users', 'POST', { username: 'member', password: 'member password 123', role: 'read_only' }, admin).then((response) => response.json());
+  const platform = (await read('/api/teams', admin))[0];
+  await send(`/api/teams/${platform.id}/members`, 'POST', { userId: managerUser.id }, admin);
+  await send(`/api/teams/${platform.id}/members`, 'POST', { userId: memberUser.id }, admin);
+  const manager = await login('manager', 'manager password 123');
+  const member = await login('member', 'member password 123');
+
+  const board = `?teamId=${platform.id}`;
+  const add = (name) => send(`/api/kanban/columns${board}`, 'POST', { name }, admin).then((response) => response.json());
+  const [todo, , done] = [await add('To do'), await add('Doing'), await add('Done')];
+  const order = async () => (await read(`/api/kanban${board}`, member)).columns.map((column) => column.name);
+  const version = async () => (await read('/api/version', member)).version;
+
+  const before = await version();
+  assert.equal((await send(`/api/kanban/columns/${done.id}${board}`, 'PUT', { position: 0 }, member)).status, 403);
+  assert.deepEqual(await order(), ['To do', 'Doing', 'Done']);
+  assert.equal(await version(), before);
+
+  assert.equal((await send(`/api/kanban/columns/${done.id}${board}`, 'PUT', { position: 0 }, manager)).status, 200);
+  assert.deepEqual(await order(), ['Done', 'To do', 'Doing']);
+  assert.ok(await version() > before);
+
+  assert.equal((await send(`/api/kanban/columns/${todo.id}${board}`, 'PUT', { position: 2 }, admin)).status, 200);
+  assert.deepEqual(await order(), ['Done', 'Doing', 'To do']);
+});

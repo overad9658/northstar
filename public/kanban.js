@@ -1,5 +1,9 @@
 import { escapeHtml, requestJson, showToast } from './browser-utils.js';
 import { liveUpdates } from './live-updates.js';
+import { COLUMN_DRAG_TYPE, columnControls, dropTarget, moveTarget, reorderColumns } from './kanban-columns.js';
+import { ALL_BOARDS, targetColumn } from './shared/kanban-boards.js';
+import { cardMatches, requestedCard } from './shared/card-search.js';
+import { compareCards, ranksForMove } from './shared/card-order.js';
 
 const board = document.querySelector('#kanban-board');
 const dialog = document.querySelector('#card-dialog');
@@ -21,6 +25,11 @@ const showArchived = document.querySelector('#show-archived');
 const archiveButton = document.querySelector('#archive-card');
 const assigneeOptions = document.querySelector('#assignee-options');
 const teamBoard = document.querySelector('#team-board');
+const teamFilter = document.querySelector('#team-filter');
+const teamFilterField = document.querySelector('#team-filter-field');
+const cardTeamField = document.querySelector('#card-team-field');
+const exportButton = document.querySelector('#download-kanban-report');
+const cardSearch = document.querySelector('#card-search');
 let data = { columns: [], cards: [] };
 let projects = [];
 let canEdit = false;
@@ -32,6 +41,8 @@ let selectedTag = '';
 let selectedProject = 'all';
 let selectedAssignee = '';
 let selectedDecision = '';
+let selectedTeamFilter = '';
+let searchText = '';
 let dragging = false;
 let editingCard = null;
 
@@ -43,8 +54,32 @@ function api(path = '', options) {
   return requestJson(`/api/kanban${path}${path.includes('?') ? '&' : '?'}teamId=${selectedTeamId}`, options, 'The board could not be saved.');
 }
 
+// "All boards" shows every team's board at once (?teamId=all); columns merge by name.
+const allMode = () => selectedTeamId === ALL_BOARDS;
+const canEditTeam = (teamId) => currentUser.role === 'admin' || currentUser.teamIds.includes(teamId);
+
+// One shape for both modes: every column has a key, every card the key of the column it shows in.
+function normalize(board) {
+  board.columns.forEach((column) => { column.key ??= String(column.id); });
+  board.cards.forEach((card) => { card.columnKey ??= String(card.columnId); });
+  return board;
+}
+
+// Each team keeps one badge tone for as long as the page shows the same teams.
+function teamTone(teamId) {
+  return `team-tone-${Math.max(0, (data.teams || []).findIndex((team) => team.id === teamId)) % 6}`;
+}
+
 function mutation(method, body) {
   return { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) };
+}
+
+// A blocker shows as #id with its title when it is on this board; a finished blocker (in a column named Done) is struck through.
+function blockerLabel(id) {
+  const blocker = data.cards.find((item) => item.id === id);
+  if (!blocker) return `#${id}`;
+  const done = /^done$/i.test(data.columns.find((column) => column.key === blocker.columnKey)?.name || '');
+  return `<span class="${done ? 'kanban-blocker-done' : ''}" title="${escapeHtml(blocker.title)}">#${id} ${escapeHtml(blocker.title)}</span>`;
 }
 
 function render() {
@@ -60,18 +95,29 @@ function render() {
   if (!['all', 'none'].includes(selectedProject) && !projects.some((project) => String(project.id) === selectedProject)) selectedProject = 'all';
   projectFilter.innerHTML = '<option value="all">All projects</option><option value="none">General to dos</option>' + projects.map((project) => `<option value="${project.id}">${escapeHtml(project.projectId ? `${project.projectId} · ${project.name}` : project.name)}</option>`).join('');
   projectFilter.value = selectedProject;
-  board.innerHTML = data.columns.length ? data.columns.map((column) => {
-    const cards = data.cards.filter((card) => card.columnId === column.id
+  if (allMode()) {
+    if (selectedTeamFilter && !data.teams.some((team) => String(team.id) === selectedTeamFilter)) selectedTeamFilter = '';
+    teamFilter.innerHTML = '<option value="">All teams</option>' + data.teams.map((team) => `<option value="${team.id}">${escapeHtml(team.name)}</option>`).join('');
+    teamFilter.value = selectedTeamFilter;
+  }
+  const filtering = searchText.trim() || selectedTag || selectedAssignee || selectedDecision || selectedProject !== 'all' || selectedTeamFilter;
+  board.innerHTML = data.columns.length ? data.columns.map((column, columnIndex) => {
+    const cards = data.cards.filter((card) => card.columnKey === column.key
+      && (!selectedTeamFilter || String(card.teamId) === selectedTeamFilter)
+      && cardMatches(card, searchText)
       && (!selectedTag || card.tags?.includes(selectedTag))
       && (!selectedAssignee || (selectedAssignee === 'none' ? !card.assignee : card.assignee === selectedAssignee))
       && (selectedDecision !== 'open' || (card.decision && !card.decision.decidedOption))
-      && (selectedProject === 'all' || (selectedProject === 'none' ? card.projectId === null : String(card.projectId) === selectedProject)));
-    return `<section class="kanban-column" data-column-id="${column.id}" aria-label="${escapeHtml(column.name)}">
-      <header class="kanban-column-head"><div><h2>${escapeHtml(column.name)}</h2><span>${cards.length}</span></div>${canManageColumns ? `<div class="kanban-column-actions"><button type="button" class="column-rename" aria-label="Rename ${escapeHtml(column.name)}" title="Rename column">✎</button><button type="button" class="column-delete" aria-label="Delete ${escapeHtml(column.name)}" title="Delete column">×</button></div>` : ''}</header>
-      <div class="kanban-card-list">${cards.map((card) => `<article class="kanban-card${card.archived ? ' archived' : ''}" data-card-id="${card.id}" ${canEdit ? 'draggable="true"' : ''} tabindex="0" role="button" aria-label="${escapeHtml(card.title)}">
-        ${card.archived ? '<span class="kanban-archived-tag">Archived</span>' : ''}<h3>${escapeHtml(card.title)}</h3>${card.description ? `<p>${escapeHtml(card.description)}</p>` : ''}
+      && (selectedProject === 'all' || (selectedProject === 'none' ? card.projectId === null : String(card.projectId) === selectedProject))).sort(compareCards);
+    return `<section class="kanban-column" data-column-id="${escapeHtml(column.key)}" aria-label="${escapeHtml(column.name)}">
+      <header class="kanban-column-head"${canManageColumns ? ' draggable="true" title="Drag to reorder"' : ''}><div><h2>${escapeHtml(column.name)}</h2><span>${cards.length}</span></div>${columnControls(column, columnIndex, data.columns.length, canManageColumns)}</header>
+      <div class="kanban-card-list">${cards.map((card) => `<article class="kanban-card${card.archived ? ' archived' : ''}" data-card-id="${card.id}" ${canEdit && canEditTeam(card.teamId) ? 'draggable="true"' : ''} tabindex="0" role="button" aria-label="${escapeHtml(card.title)}${allMode() ? `, ${escapeHtml(card.teamName)}` : ''}">
+        ${allMode() ? `<span class="kanban-team-tag ${teamTone(card.teamId)}" title="Team board">${escapeHtml(card.teamName)}</span>` : ''}${card.archived ? '<span class="kanban-archived-tag">Archived</span>' : ''}<span class="kanban-card-id" title="Card number">#${card.id}</span><h3>${escapeHtml(card.title)}</h3>${card.description ? `<p>${escapeHtml(card.description)}</p>` : ''}
         ${card.assignee ? `<span class="kanban-assignee" title="Assignee">${escapeHtml(card.assignee)}</span>` : ''}
         ${card.nextStep ? `<p class="kanban-next-step"><strong>Next</strong> ${escapeHtml(card.nextStep)}</p>` : ''}
+        ${card.objective ? `<p class="kanban-objective"><strong>Objective</strong> ${escapeHtml(card.objective)}</p>` : ''}
+        ${(card.blockedBy || []).length ? `<p class="kanban-blocked-by"><strong>Blocked by</strong> ${card.blockedBy.map((id) => blockerLabel(id)).join(', ')}</p>` : ''}
+        ${card.rank === null || card.rank === undefined ? '' : `<span class="kanban-rank" title="Rank in the sequence">Rank ${card.rank}</span>`}
         ${card.decision ? `<span class="kanban-decision-tag${card.decision.decidedOption ? ' decided' : ''}">${card.decision.decidedOption
     ? `Decided: ${escapeHtml(card.decision.decidedOption)}`
     : `Decision open${card.decision.recommendation ? ` · recommends ${escapeHtml(card.decision.recommendation)}${card.decision.confidence === null ? '' : ` (${card.decision.confidence}%)`}` : ''}`}</span>` : ''}
@@ -79,13 +125,21 @@ function render() {
         ${card.projectId ? `<span class="kanban-project-tag">${escapeHtml(card.projectCode || card.projectName || 'Project')}<span>${card.projectCode ? escapeHtml(card.projectName) : ''}</span></span>` : '<span class="kanban-general-tag">General to do</span>'}
         ${(card.tags || []).length ? `<div class="kanban-tags">${card.tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join('')}</div>` : ''}
         ${card.noteCount ? `<span class="kanban-note-count">${card.noteCount} ${card.noteCount === 1 ? 'note' : 'notes'}</span>` : ''}
-      </article>`).join('') || `<p class="kanban-column-empty">${selectedTag || selectedAssignee || selectedDecision || selectedProject !== 'all' ? 'No cards match these filters.' : 'Drop cards here or add one below.'}</p>`}</div>
+      </article>`).join('') || `<p class="kanban-column-empty">${filtering ? 'No cards match these filters.' : 'Drop cards here or add one below.'}</p>`}</div>
       ${canEdit ? `<button type="button" class="kanban-add-card">+ Add card</button>` : ''}
     </section>`;
-  }).join('') : '<div class="kanban-board-empty"><h2>Your board starts with a column</h2><p>Add a column for the way you organize work, then fill it with cards.</p></div>';
+  }).join('') : allMode()
+    ? '<div class="kanban-board-empty"><h2>No columns on any board yet</h2><p>Pick a team board to add its first column.</p></div>'
+    : '<div class="kanban-board-empty"><h2>Your board starts with a column</h2><p>Add a column for the way you organize work, then fill it with cards.</p></div>';
 }
 
-function openCard(columnId, card = null) {
+function projectOptions(teamId) {
+  const teamName = allMode() ? data.teams.find((team) => team.id === teamId)?.name?.toLocaleLowerCase() : null;
+  const shown = teamName ? projects.filter((project) => project.team?.toLocaleLowerCase() === teamName) : projects;
+  return '<option value="">No project — general to do</option>' + shown.map((project) => `<option value="${project.id}">${escapeHtml(project.projectId ? `${project.projectId} · ${project.name}` : project.name)}</option>`).join('');
+}
+
+function openCard(columnKey, card = null) {
   editingId = card?.id || null;
   editingCard = card;
   form.reset();
@@ -93,11 +147,19 @@ function openCard(columnId, card = null) {
   archiveButton.textContent = card?.archived ? 'Restore card' : 'Archive card';
   cardError.textContent = '';
   dialog.classList.toggle('editing', Boolean(card));
-  document.querySelector('#card-dialog-kicker').textContent = card ? 'Edit card' : 'New card';
+  document.querySelector('#card-dialog-kicker').textContent = card ? `Edit card · #${card.id}` : 'New card';
   document.querySelector('#card-dialog-title').textContent = card ? card.title : 'Add a card';
-  form.elements.columnId.innerHTML = data.columns.map((column) => `<option value="${column.id}">${escapeHtml(column.name)}</option>`).join('');
-  form.elements.projectId.innerHTML = '<option value="">No project — general to do</option>' + projects.map((project) => `<option value="${project.id}">${escapeHtml(project.projectId ? `${project.projectId} · ${project.name}` : project.name)}</option>`).join('');
-  form.elements.columnId.value = card?.columnId || columnId;
+  form.elements.columnId.innerHTML = data.columns.map((column) => `<option value="${escapeHtml(column.key)}">${escapeHtml(column.name)}</option>`).join('');
+  // On All boards a new card asks which team it belongs to; an existing card shows its team.
+  cardTeamField.hidden = !allMode();
+  if (allMode()) {
+    const choices = card ? data.teams.filter((team) => team.id === card.teamId) : data.teams.filter((team) => canEditTeam(team.id));
+    form.elements.teamId.innerHTML = choices.map((team) => `<option value="${team.id}">${escapeHtml(team.name)}</option>`).join('');
+    const columnTeams = data.columns.find((column) => column.key === columnKey)?.columns.map((item) => item.teamId) || [];
+    form.elements.teamId.value = String(card?.teamId || choices.find((team) => columnTeams.includes(team.id))?.id || choices[0]?.id || '');
+  }
+  form.elements.projectId.innerHTML = projectOptions(cardTeamId());
+  form.elements.columnId.value = card?.columnKey || columnKey;
   form.elements.projectId.value = card?.projectId || '';
   form.elements.title.value = card?.title || '';
   form.elements.description.value = card?.description || '';
@@ -106,7 +168,8 @@ function openCard(columnId, card = null) {
   form.elements.nextStep.value = card?.nextStep || '';
   fillDecision(card?.decision || null);
   form.elements.tags.value = card?.tags?.join(', ') || '';
-  form.querySelectorAll('input, textarea, select').forEach((field) => { field.disabled = !canEdit; });
+  form.querySelectorAll('input, textarea, select').forEach((field) => { field.disabled = !canEdit || (card && !canEditTeam(card.teamId)); });
+  form.elements.teamId.disabled = Boolean(card) || !canEdit;
   form.querySelector('.dialog-actions').hidden = !canEdit;
   notesSection.hidden = !card;
   historySection.hidden = !card;
@@ -115,7 +178,7 @@ function openCard(columnId, card = null) {
   historyList.innerHTML = '';
   noteError.textContent = '';
   dialog.showModal();
-  if (card) { void loadNotes(card.id); void loadHistory(card.id); }
+  if (card) { void loadNotes(card.id); void loadHistory(card.id); setCardParam(card.id); }
   if (canEdit) form.elements.title.focus();
 }
 
@@ -173,8 +236,14 @@ document.querySelector('#download-kanban-report').addEventListener('click', asyn
   } catch (error) { boardError.textContent = error.message; }
 });
 
+// The team a card in the dialog belongs to: its own, the one picked on All boards, or this board's.
+function cardTeamId() {
+  if (editingCard) return editingCard.teamId;
+  return allMode() ? Number(form.elements.teamId.value) : selectedTeamId;
+}
+
 async function reload() {
-  data = await api(boardPath());
+  data = normalize(await api(boardPath()));
   render();
 }
 
@@ -218,10 +287,16 @@ async function saveCard(event) {
     externalUrl: form.elements.externalUrl.value,
     nextStep: form.elements.nextStep.value,
     decision: readDecision(),
-    columnId: Number(form.elements.columnId.value),
+    columnId: null,
     projectId: form.elements.projectId.value ? Number(form.elements.projectId.value) : null,
     tags: form.elements.tags.value.split(',').map((tag) => tag.trim()).filter(Boolean),
   };
+  const column = data.columns.find((item) => item.key === form.elements.columnId.value);
+  payload.columnId = allMode() ? targetColumn(column, cardTeamId()) : column?.id;
+  if (!payload.columnId) {
+    cardError.textContent = `The ${data.teams.find((team) => team.id === cardTeamId())?.name || 'chosen'} board has no “${column?.name || ''}” column.`;
+    return;
+  }
   const button = form.querySelector('[type="submit"]');
   button.disabled = true;
   try {
@@ -229,7 +304,8 @@ async function saveCard(event) {
     const saved = await api(`/cards${editingId ? `/${editingId}` : ''}`, mutation(editingId ? 'PUT' : 'POST', payload));
     await reload();
     dialog.close();
-    if (!wasEditing) openCard(saved.columnId, saved);
+    const fresh = data.cards.find((item) => item.id === saved.id);
+    if (!wasEditing) openCard(fresh?.columnKey || String(saved.columnId), fresh || saved);
     showToast(wasEditing ? 'Card updated' : 'Card added');
   } catch (error) { cardError.textContent = error.message; }
   finally { button.disabled = false; }
@@ -252,6 +328,9 @@ tagFilter.addEventListener('change', () => { selectedTag = tagFilter.value; rend
 projectFilter.addEventListener('change', () => { selectedProject = projectFilter.value; render(); });
 assigneeFilter.addEventListener('change', () => { selectedAssignee = assigneeFilter.value; render(); });
 decisionFilter.addEventListener('change', () => { selectedDecision = decisionFilter.value; render(); });
+teamFilter.addEventListener('change', () => { selectedTeamFilter = teamFilter.value; render(); });
+cardSearch.addEventListener('input', () => { searchText = cardSearch.value; render(); });
+form.elements.teamId.addEventListener('change', () => { form.elements.projectId.innerHTML = projectOptions(cardTeamId()); });
 showArchived.addEventListener('change', () => { reload().catch((error) => { boardError.textContent = error.message; }); });
 archiveButton.addEventListener('click', async () => {
   if (!editingCard) return;
@@ -261,14 +340,32 @@ archiveButton.addEventListener('click', async () => {
 });
 form.elements.decisionOptions.addEventListener('input', () => setDecisionChoices(decisionOptions(), form.elements.decidedOption.value));
 
+async function moveColumn(columnId, position, focusClass) {
+  if (position === null) return;
+  boardError.textContent = '';
+  const before = data.columns;
+  data = { ...data, columns: reorderColumns(before, columnId, position) };
+  render();
+  if (focusClass) {
+    const head = board.querySelector(`[data-column-id="${columnId}"]`);
+    const button = head?.querySelector(`.${focusClass}`);
+    (button && !button.disabled ? button : head?.querySelector('.column-move-left:not([disabled]), .column-move-right:not([disabled])'))?.focus();
+  }
+  try { await api(`/columns/${columnId}`, mutation('PUT', { position })); showToast('Column moved'); }
+  catch (error) { data = { ...data, columns: before }; render(); boardError.textContent = error.message; }
+}
+
 board.addEventListener('click', async (event) => {
   if (event.target.closest('.kanban-card-link')) return;
   const columnElement = event.target.closest('[data-column-id]');
   if (!columnElement) return;
-  const columnId = Number(columnElement.dataset.columnId);
-  const column = data.columns.find((item) => item.id === columnId);
+  const column = data.columns.find((item) => item.key === columnElement.dataset.columnId);
+  const columnId = column?.id;
   const cardElement = event.target.closest('[data-card-id]');
-  if (canManageColumns && event.target.closest('.column-rename')) {
+  if (canManageColumns && event.target.closest('.column-move-left, .column-move-right')) {
+    const left = Boolean(event.target.closest('.column-move-left'));
+    await moveColumn(columnId, moveTarget(data.columns, columnId, left ? -1 : 1), left ? 'column-move-left' : 'column-move-right');
+  } else if (canManageColumns && event.target.closest('.column-rename')) {
     const name = prompt('Column name', column.name);
     if (name === null || name.trim() === column.name) return;
     try { await api(`/columns/${columnId}`, mutation('PUT', { name })); await reload(); showToast('Column renamed'); }
@@ -278,8 +375,8 @@ board.addEventListener('click', async (event) => {
     if (!confirm(`Delete “${column.name}”${count ? ` and its ${count} card${count === 1 ? '' : 's'}` : ''}?`)) return;
     try { await api(`/columns/${columnId}`, { method: 'DELETE' }); await reload(); showToast('Column deleted'); }
     catch (error) { boardError.textContent = error.message; }
-  } else if (canEdit && event.target.closest('.kanban-add-card')) openCard(columnId);
-  else if (cardElement) openCard(columnId, data.cards.find((card) => card.id === Number(cardElement.dataset.cardId)));
+  } else if (canEdit && event.target.closest('.kanban-add-card')) openCard(column.key);
+  else if (cardElement) openCard(column.key, data.cards.find((card) => card.id === Number(cardElement.dataset.cardId)));
 });
 
 board.addEventListener('keydown', (event) => {
@@ -288,25 +385,73 @@ board.addEventListener('keydown', (event) => {
   if (!cardElement) return;
   event.preventDefault();
   const card = data.cards.find((item) => item.id === Number(cardElement.dataset.cardId));
-  openCard(card.columnId, card);
+  openCard(card.columnKey, card);
 });
 
 board.addEventListener('dragstart', (event) => {
+  const head = event.target.closest?.('.kanban-column-head');
+  if (head) {
+    if (!canManageColumns) return;
+    dragging = true;
+    event.dataTransfer.setData(COLUMN_DRAG_TYPE, head.closest('[data-column-id]').dataset.columnId);
+    event.dataTransfer.effectAllowed = 'move';
+    return;
+  }
   if (!canEdit) return;
   const cardElement = event.target.closest('[data-card-id]');
   if (!cardElement) return;
   dragging = true;
+  draggedCardId = Number(cardElement.dataset.cardId);
   event.dataTransfer.setData('text/plain', cardElement.dataset.cardId);
   event.dataTransfer.effectAllowed = 'move';
 });
+// Where a dragged card would land in a column: before the first card whose middle is below the pointer.
+function dropBefore(columnElement, clientY, draggedId) {
+  return [...columnElement.querySelectorAll('[data-card-id]')]
+    .find((element) => Number(element.dataset.cardId) !== draggedId && clientY < element.getBoundingClientRect().top + element.getBoundingClientRect().height / 2) || null;
+}
+
+function clearDropMarks() {
+  board.querySelectorAll('.drop-target, .drop-before').forEach((element) => element.classList.remove('drop-target', 'drop-before'));
+}
+
+let draggedCardId = null;
+
+// Dragging a card within its column sets its rank between its new neighbours (see ranksForMove).
+async function reorderCard(card, columnElement, clientY) {
+  const column = data.cards.filter((item) => item.columnKey === card.columnKey).sort(compareCards);
+  const others = column.filter((item) => item.id !== card.id);
+  const before = dropBefore(columnElement, clientY, card.id);
+  // With filters on, a drop after the last shown card lands right after that card, not at the column's end.
+  const shown = [...columnElement.querySelectorAll('[data-card-id]')].map((element) => Number(element.dataset.cardId)).filter((id) => id !== card.id);
+  const index = before ? others.findIndex((item) => item.id === Number(before.dataset.cardId))
+    : shown.length ? others.findIndex((item) => item.id === shown.at(-1)) + 1 : others.length;
+  const ranks = ranksForMove(column, card.id, index);
+  if (!ranks.length) return;
+  boardError.textContent = '';
+  try { await requestJson('/api/kanban/cards/ranks', mutation('PUT', { ranks }), 'The order could not be saved.'); await reload(); showToast('Card reordered'); }
+  catch (error) { boardError.textContent = error.message; }
+}
+
 board.addEventListener('dragover', (event) => {
+  if (canManageColumns && event.dataTransfer.types.includes(COLUMN_DRAG_TYPE)) {
+    const columnElement = event.target.closest('[data-column-id]');
+    if (!columnElement) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    board.querySelectorAll('.drop-target').forEach((element) => element.classList.remove('drop-target'));
+    columnElement.classList.add('drop-target');
+    return;
+  }
   if (!canEdit || !event.dataTransfer.types.includes('text/plain')) return;
   const columnElement = event.target.closest('[data-column-id]');
   if (!columnElement) return;
   event.preventDefault();
   event.dataTransfer.dropEffect = 'move';
-  board.querySelectorAll('.drop-target').forEach((element) => element.classList.remove('drop-target'));
-  columnElement.classList.add('drop-target');
+  clearDropMarks();
+  const card = data.cards.find((item) => item.id === draggedCardId);
+  if (card && card.columnKey === columnElement.dataset.columnId) dropBefore(columnElement, event.clientY, card.id)?.classList.add('drop-before');
+  else columnElement.classList.add('drop-target');
 });
 board.addEventListener('dragleave', (event) => {
   const columnElement = event.target.closest('[data-column-id]');
@@ -314,18 +459,34 @@ board.addEventListener('dragleave', (event) => {
 });
 board.addEventListener('drop', async (event) => {
   const columnElement = event.target.closest('[data-column-id]');
-  board.querySelectorAll('.drop-target').forEach((element) => element.classList.remove('drop-target'));
+  clearDropMarks();
+  if (canManageColumns && columnElement && event.dataTransfer.types.includes(COLUMN_DRAG_TYPE)) {
+    event.preventDefault();
+    const draggedId = Number(event.dataTransfer.getData(COLUMN_DRAG_TYPE));
+    dragging = false;
+    await moveColumn(draggedId, dropTarget(data.columns, draggedId, Number(columnElement.dataset.columnId)));
+    return;
+  }
   if (!canEdit || !columnElement) return;
   event.preventDefault();
   const cardId = Number(event.dataTransfer.getData('text/plain'));
   const card = data.cards.find((item) => item.id === cardId);
-  const columnId = Number(columnElement.dataset.columnId);
-  if (!card || card.columnId === columnId) return;
+  const column = data.columns.find((item) => item.key === columnElement.dataset.columnId);
+  if (!card || !column) return;
+  if (card.columnKey === column.key) { if (canEditTeam(card.teamId)) await reorderCard(card, columnElement, event.clientY); return; }
+  // On All boards a card moves to the same-named column on its own team; it never changes team.
+  const columnId = allMode() ? targetColumn(column, card.teamId) : column.id;
+  if (!columnId) {
+    boardError.textContent = `“${card.title}” stays put: the ${card.teamName} board has no “${column.name}” column.`;
+    showToast(`The ${card.teamName} board has no “${column.name}” column`);
+    return;
+  }
+  boardError.textContent = '';
   try { await api(`/cards/${cardId}`, mutation('PUT', { columnId })); await reload(); showToast('Card moved'); }
   catch (error) { boardError.textContent = error.message; }
 });
-board.addEventListener('dragend', () => dragging = false);
-board.addEventListener('dragend', () => board.querySelectorAll('.drop-target').forEach((element) => element.classList.remove('drop-target')));
+board.addEventListener('dragend', () => { dragging = false; draggedCardId = null; });
+board.addEventListener('dragend', clearDropMarks);
 
 form.addEventListener('submit', saveCard);
 noteForm.addEventListener('submit', async (event) => {
@@ -361,26 +522,56 @@ document.querySelector('#delete-card').addEventListener('click', async () => {
   catch (error) { cardError.textContent = error.message; }
 });
 document.querySelector('#close-card-dialog').addEventListener('click', () => dialog.close());
+// While a card is open the address names it (?card=<id>), so the link can be shared.
+dialog.addEventListener('close', () => setCardParam(null));
 document.querySelector('#cancel-card').addEventListener('click', () => dialog.close());
 
 async function selectTeam(teamId) {
   selectedTeamId = teamId;
-  canEdit = currentUser.role === 'admin' || currentUser.teamIds.includes(teamId);
-  canManageColumns = currentUser.role === 'admin' || (currentUser.role === 'team_manager' && currentUser.teamIds.includes(teamId));
+  // Columns belong to one team, so rename, delete, reorder and add column stay on team boards.
+  canEdit = allMode() ? currentUser.role === 'admin' || currentUser.teamIds.length > 0 : canEditTeam(teamId);
+  canManageColumns = !allMode() && (currentUser.role === 'admin' || (currentUser.role === 'team_manager' && currentUser.teamIds.includes(teamId)));
   columnForm.hidden = !canManageColumns;
-  [data, projects] = await Promise.all([api(boardPath()), api('/projects')]);
-  selectedProject = 'all'; selectedTag = '';
+  exportButton.hidden = allMode();
+  teamFilterField.hidden = !allMode();
+  const [board, boardProjects] = await Promise.all([api(boardPath()), api('/projects')]);
+  data = normalize(board);
+  projects = boardProjects;
+  selectedProject = 'all'; selectedTag = ''; selectedTeamFilter = '';
   render();
   history.replaceState(null, '', `?teamId=${teamId}`);
 }
-teamBoard.addEventListener('change', () => { void selectTeam(Number(teamBoard.value)).catch((error) => { boardError.textContent = error.message; }); });
+
+function setCardParam(cardId) {
+  const params = new URLSearchParams(location.search);
+  if (cardId) params.set('card', cardId); else params.delete('card');
+  history.replaceState(null, '', `?${params}`);
+}
+
+// ?card=<id> opens that card: on its own team's board, with archived cards shown if it is archived.
+async function openRequestedCard(cardId) {
+  let card;
+  try { card = await requestJson(`/api/kanban/cards/${cardId}`); } catch { boardError.textContent = `Card #${cardId} was not found.`; return; }
+  if (card.archived && !showArchived.checked) showArchived.checked = true;
+  if (!allMode() && selectedTeamId !== card.teamId) { teamBoard.value = String(card.teamId); await selectTeam(card.teamId); }
+  else if (card.archived) await reload();
+  const shown = data.cards.find((item) => item.id === cardId);
+  if (!shown) { boardError.textContent = `Card #${cardId} is not on this board.`; return; }
+  openCard(shown.columnKey, shown);
+}
+teamBoard.addEventListener('change', () => { void selectTeam(teamBoard.value === ALL_BOARDS ? ALL_BOARDS : Number(teamBoard.value)).catch((error) => { boardError.textContent = error.message; }); });
 try {
   currentUser = await requestJson('/api/auth/me');
   const teams = await requestJson('/api/teams');
-  teamBoard.replaceChildren(...teams.map((team) => new Option(team.name, team.id)));
-  const requested = Number(new URLSearchParams(location.search).get('teamId'));
+  teamBoard.replaceChildren(...teams.map((team) => new Option(team.name, team.id)), ...(teams.length > 1 ? [new Option('All boards', ALL_BOARDS)] : []));
+  // Read before selectTeam rewrites the address.
+  const deepLink = requestedCard(location.search);
+  const requestedParam = new URLSearchParams(location.search).get('teamId');
+  const requested = Number(requestedParam);
   const initial = teams.find((team) => team.id === requested) || teams.find((team) => currentUser.teamIds.includes(team.id)) || teams[0];
-  if (initial) { teamBoard.value = String(initial.id); await selectTeam(initial.id); }
+  if (requestedParam === ALL_BOARDS && teams.length > 1) { teamBoard.value = ALL_BOARDS; await selectTeam(ALL_BOARDS); }
+  else if (initial) { teamBoard.value = String(initial.id); await selectTeam(initial.id); }
+  if (deepLink) await openRequestedCard(deepLink);
   liveUpdates(['kanban', 'projects'], async (kinds) => {
     if (!selectedTeamId) return;
     // Column lists scroll on their own; keep each where the viewer left it.
@@ -389,7 +580,7 @@ try {
       kinds.includes('kanban') || kinds.includes('projects') ? api(boardPath()) : data,
       kinds.includes('projects') ? api('/projects') : projects,
     ]);
-    data = nextData;
+    data = nextData === data ? data : normalize(nextData);
     projects = nextProjects;
     render();
     board.querySelectorAll('[data-column-id]').forEach((element) => {

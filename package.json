@@ -11,7 +11,7 @@
     "dev": "node --watch server.mjs",
     "start": "node server.mjs",
     "test": "node --test",
-    "check": "node support/check-syntax.mjs && node --test",
+    "check": "node support/check-syntax.mjs && node support/check-data.mjs && node --test",
     "sbom": "sh support/generate-sbom.sh"
   },
   "dependencies": {

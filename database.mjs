@@ -14,7 +14,7 @@ const projectsTableSql = `
     restore_note TEXT NOT NULL DEFAULT '',
     team TEXT NOT NULL DEFAULT 'Platform',
     status TEXT NOT NULL DEFAULT 'Active' CHECK(status IN ('Scheduled', 'Active', 'On hold', 'Blocked', 'Complete')),
-    schedule_stage TEXT NOT NULL DEFAULT 'To plan' CHECK(schedule_stage IN ('To plan', 'Planning')),
+    schedule_stage TEXT NOT NULL DEFAULT 'To plan' CHECK(schedule_stage IN ('Idea', 'To plan', 'Planning')),
     capacity INTEGER NOT NULL DEFAULT 0 CHECK(capacity BETWEEN 0 AND 999),
     archived INTEGER NOT NULL DEFAULT 0 CHECK(archived IN (0, 1)),
     impact INTEGER NOT NULL CHECK(impact BETWEEN 1 AND 10),
@@ -86,7 +86,7 @@ function migrateProjects(db) {
   ensureColumn(db, 'projects', 'restore_note', "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, 'projects', 'external_url', "TEXT NOT NULL DEFAULT ''");
   if (!hasColumn(db, 'projects', 'schedule_stage')) {
-    ensureColumn(db, 'projects', 'schedule_stage', "TEXT NOT NULL DEFAULT 'To plan' CHECK(schedule_stage IN ('To plan', 'Planning'))");
+    ensureColumn(db, 'projects', 'schedule_stage', "TEXT NOT NULL DEFAULT 'To plan' CHECK(schedule_stage IN ('Idea', 'To plan', 'Planning'))");
     db.exec("UPDATE projects SET schedule_stage = 'Planning' WHERE status IN ('Scheduled', 'Planned') AND capacity > 0");
   }
 
@@ -109,10 +109,39 @@ function migrateProjects(db) {
   }
 }
 
-function createRelatedTables(db) {
-  db.exec(`
+const SCHEDULE_STAGE_CHECK = "CHECK(schedule_stage IN ('Idea', 'To plan', 'Planning'))";
+const PROJECT_INDEXES_SQL = `
     CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status);
-    CREATE INDEX IF NOT EXISTS idx_projects_priority ON projects(impact DESC, urgency DESC);
+    CREATE INDEX IF NOT EXISTS idx_projects_priority ON projects(impact DESC, urgency DESC);`;
+
+// Widens the Scheduled stage check to allow Idea. SQLite cannot alter a check, so the table is
+// rebuilt from its own current definition (every column it has gained since), with only the
+// check changed, and its indexes are recreated.
+function migrateScheduleStages(db) {
+  if (db.dialect === 'postgres') {
+    db.exec('ALTER TABLE projects DROP CONSTRAINT IF EXISTS projects_schedule_stage_check');
+    db.exec(`ALTER TABLE projects ADD CONSTRAINT projects_schedule_stage_check ${SCHEDULE_STAGE_CHECK}`);
+    return;
+  }
+  const definition = db.prepare("SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = 'projects'").get().sql;
+  if (definition.includes(SCHEDULE_STAGE_CHECK) || !definition.includes("CHECK(schedule_stage IN ('To plan', 'Planning'))")) return;
+  const widened = definition.replace("CHECK(schedule_stage IN ('To plan', 'Planning'))", SCHEDULE_STAGE_CHECK).replace(/^CREATE TABLE "?projects"?/, 'CREATE TABLE projects_new');
+  db.exec('PRAGMA foreign_keys = OFF');
+  try {
+    transaction(db, () => db.exec(`
+      ${widened};
+      INSERT INTO projects_new SELECT * FROM projects;
+      DROP TABLE projects;
+      ALTER TABLE projects_new RENAME TO projects;
+      ${PROJECT_INDEXES_SQL}
+    `));
+  } finally {
+    db.exec('PRAGMA foreign_keys = ON');
+  }
+}
+
+function createRelatedTables(db) {
+  db.exec(`${PROJECT_INDEXES_SQL}
     CREATE TABLE IF NOT EXISTS portfolio_settings (
       id INTEGER PRIMARY KEY CHECK(id = 1),
       total_capacity INTEGER NOT NULL DEFAULT 0 CHECK(total_capacity BETWEEN 0 AND 9999)
@@ -295,6 +324,7 @@ function createRelatedTables(db) {
   ensureColumn(db, 'api_tokens', 'created_by', 'INTEGER REFERENCES users(id) ON DELETE SET NULL');
   ensureColumn(db, 'portfolio_settings', 'api_token_hash', "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, 'portfolio_settings', 'api_token_created_at', 'TEXT');
+  ensureColumn(db, 'portfolio_settings', 'api_token_created_by', 'INTEGER REFERENCES users(id) ON DELETE SET NULL');
   ensureColumn(db, 'project_moves', 'comment', "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, 'planning_session_projects', 'revealed', 'INTEGER NOT NULL DEFAULT 0 CHECK(revealed IN (0, 1))');
   ensureColumn(db, 'planning_session_projects', 'move_comment', "TEXT NOT NULL DEFAULT ''");
@@ -308,6 +338,39 @@ function createRelatedTables(db) {
   ensureColumn(db, 'kanban_cards', 'archived_at', 'TEXT');
   ensureColumn(db, 'kanban_cards', 'source', "TEXT NOT NULL DEFAULT ''");
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_kanban_cards_key ON kanban_cards(card_key) WHERE card_key IS NOT NULL');
+  // rank is a card's place in a sequence across boards (NULL = unranked); position stays its order inside a column.
+  ensureColumn(db, 'kanban_cards', 'rank', 'INTEGER');
+  ensureColumn(db, 'kanban_cards', 'objective', "TEXT NOT NULL DEFAULT ''");
+  // Why a card sits where it does in the sequence, when it can start, and what its chain reaches.
+  ensureColumn(db, 'kanban_cards', 'rank_reason', "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, 'kanban_cards', 'reason_full', "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, 'kanban_cards', 'wait_until', 'TEXT');
+  ensureColumn(db, 'kanban_cards', 'outcome', "TEXT NOT NULL DEFAULT ''");
+  // One row per sequencing pass: its scores and the order it set ([{ cardId, rank, reason }]).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS sequence_runs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      at TEXT NOT NULL,
+      skill_version TEXT NOT NULL DEFAULT '',
+      scores TEXT NOT NULL DEFAULT '{}',
+      items TEXT NOT NULL DEFAULT '[]'
+    );
+    CREATE INDEX IF NOT EXISTS idx_sequence_runs_at ON sequence_runs(at, id);
+    CREATE TABLE IF NOT EXISTS page_settings (
+      key TEXT PRIMARY KEY CHECK(length(key) BETWEEN 1 AND 80),
+      value TEXT NOT NULL DEFAULT ''
+    );
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_kanban_cards_rank ON kanban_cards(rank, id);
+    CREATE TABLE IF NOT EXISTS kanban_card_blockers (
+      card_id INTEGER NOT NULL REFERENCES kanban_cards(id) ON DELETE CASCADE,
+      blocker_id INTEGER NOT NULL REFERENCES kanban_cards(id) ON DELETE CASCADE,
+      PRIMARY KEY (card_id, blocker_id),
+      CHECK(card_id != blocker_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_kanban_card_blockers_blocker ON kanban_card_blockers(blocker_id, card_id);
+  `);
   ensureColumn(db, 'projects', 'hidden_from_read_only', 'INTEGER NOT NULL DEFAULT 0 CHECK(hidden_from_read_only IN (0, 1))');
   db.exec(`
     INSERT OR IGNORE INTO planning_session_projects
@@ -413,6 +476,83 @@ function migratePlanningVotes(db) {
   `));
 }
 
+// Saved views of the projects table, one set per user.
+function migrateSavedViews(db) {
+  db.exec(`CREATE TABLE IF NOT EXISTS saved_views (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    params TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_saved_views_user ON saved_views(user_id)');
+}
+
+// Daily progress: metric definitions, one value per metric per day, one Markdown report per day,
+// milestones, a change log for the activity feed, and the board column that lists what needs the reader. Dates are YYYY-MM-DD text.
+function migrateProgress(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS metric_defs (
+      key TEXT PRIMARY KEY CHECK(length(key) BETWEEN 1 AND 64),
+      label TEXT NOT NULL CHECK(length(label) BETWEEN 1 AND 80),
+      unit TEXT NOT NULL DEFAULT '',
+      direction TEXT NOT NULL DEFAULT 'neutral' CHECK(direction IN ('up_good', 'down_good', 'neutral')),
+      position INTEGER NOT NULL DEFAULT 0,
+      description TEXT NOT NULL DEFAULT '',
+      band TEXT NOT NULL DEFAULT 'momentum' CHECK(band IN ('momentum', 'health', 'trust')),
+      question TEXT NOT NULL DEFAULT '',
+      starts_when TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS metrics (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      date TEXT NOT NULL CHECK(length(date) = 10),
+      key TEXT NOT NULL CHECK(length(key) BETWEEN 1 AND 64),
+      value DOUBLE PRECISION,
+      note TEXT NOT NULL DEFAULT '',
+      rebuilt INTEGER NOT NULL DEFAULT 0 CHECK(rebuilt IN (0, 1)),
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(date, key)
+    );
+    CREATE INDEX IF NOT EXISTS idx_metrics_key_date ON metrics(key, date);
+    CREATE TABLE IF NOT EXISTS reports (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      date TEXT NOT NULL UNIQUE CHECK(length(date) = 10),
+      body TEXT NOT NULL,
+      bullets TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS milestones (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      date TEXT NOT NULL CHECK(length(date) = 10),
+      label TEXT NOT NULL CHECK(length(label) BETWEEN 1 AND 120),
+      metric_key TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(date, label)
+    );
+    CREATE TABLE IF NOT EXISTS progress_changes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      kind TEXT NOT NULL CHECK(kind IN ('metrics', 'metric_def', 'report', 'milestone')),
+      subject TEXT NOT NULL DEFAULT '',
+      detail TEXT NOT NULL DEFAULT '{}',
+      actor TEXT NOT NULL DEFAULT '',
+      changed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_progress_changes_changed ON progress_changes(changed_at, id);
+    CREATE TABLE IF NOT EXISTS progress_settings (
+      id INTEGER PRIMARY KEY CHECK(id = 1),
+      needs_team_id INTEGER REFERENCES teams(id) ON DELETE SET NULL,
+      needs_column_id INTEGER REFERENCES kanban_columns(id) ON DELETE SET NULL
+    );
+    INSERT OR IGNORE INTO progress_settings (id) VALUES (1);
+  `);
+  // A hidden metric keeps recording but shows no tile.
+  ensureColumn(db, 'metric_defs', 'hidden', 'INTEGER NOT NULL DEFAULT 0 CHECK(hidden IN (0, 1))');
+}
+
 export function databaseConfig(env = process.env) {
   const client = (env.DATABASE_CLIENT || 'sqlite').trim().toLowerCase();
   if (!['sqlite', 'postgres'].includes(client)) throw new Error('DATABASE_CLIENT must be sqlite or postgres.');
@@ -435,6 +575,9 @@ export function openDatabase(filePath, { client = 'sqlite', connectionString } =
         migrateTeamWorkspace(db);
         migrateTeamManagerRole(db);
         migratePlanningVotes(db);
+        migrateSavedViews(db);
+        migrateScheduleStages(db);
+        migrateProgress(db);
         db.exec(`
           CREATE INDEX IF NOT EXISTS idx_planning_room_projects ON planning_session_projects(session_id, position);
           CREATE INDEX IF NOT EXISTS idx_planning_votes_session_project ON planning_votes(session_id, project_id, updated_at);
@@ -454,6 +597,9 @@ export function openDatabase(filePath, { client = 'sqlite', connectionString } =
   migrateTeamWorkspace(db);
   migrateTeamManagerRole(db);
   migratePlanningVotes(db);
+  migrateSavedViews(db);
+  migrateScheduleStages(db);
+  migrateProgress(db);
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_planning_room_projects ON planning_session_projects(session_id, position);
     CREATE INDEX IF NOT EXISTS idx_planning_votes_session_project ON planning_votes(session_id, project_id, updated_at);

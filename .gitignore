@@ -5,3 +5,13 @@ data/
 .wrangler/
 .DS_Store
 .pnpm-store/
+# Database data never belongs in the repository (support/check-data.mjs enforces it).
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.tar.gz
+backup-*/
+*-export*.json
+northstar-data*

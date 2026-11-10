@@ -26,7 +26,7 @@
 .app-menu-item.primary:hover,.app-menu-item.primary:focus-visible { background:#1b4036; }
 .app-menu-item.primary>span,.app-menu-item.primary small { color:#e7f2ed; }
 
-[data-theme="dark"] { --ink:#e8eeeb; --muted:#9ba8a3; --line:#34423e; --paper:#101715; --white:#18211e; --green:#91c7b5; --green-2:#253a33; --coral:#df9482; --shadow:0 14px 40px rgb(0 0 0 / 22%); }
+[data-theme="dark"] { color-scheme:dark; --ink:#e8eeeb; --muted:#9ba8a3; --line:#34423e; --paper:#101715; --white:#18211e; --green:#91c7b5; --green-2:#253a33; --coral:#df9482; --shadow:0 14px 40px rgb(0 0 0 / 22%); }
 [data-theme="dark"] body,[data-theme="dark"] html { background:var(--paper); }
 [data-theme="dark"] .brand-mark,[data-theme="dark"] .button.primary { color:#102019; background:#8fc7b4; border-color:#8fc7b4; }
 [data-theme="dark"] .button.secondary,[data-theme="dark"] .theme-toggle,[data-theme="dark"] .team-filter,[data-theme="dark"] .search,[data-theme="dark"] dialog,[data-theme="dark"] .icon-button,[data-theme="dark"] .team-settings-card,[data-theme="dark"] .summary { background:var(--white); }
@@ -36,7 +36,7 @@
 [data-theme="dark"] .team-filter-menu { color:var(--ink); background:#1b2522; box-shadow:0 14px 36px rgb(0 0 0 / 34%); }
 [data-theme="dark"] .team-filter-menu label { color:#c5d0cc; }
 [data-theme="dark"] .team-filter-menu label:hover,[data-theme="dark"] .project-row:hover { background:#202c28; }
-[data-theme="dark"] .app-menu-panel { box-shadow:0 16px 44px rgb(0 0 0 / 38%); }
+[data-theme="dark"] .app-menu-panel,[data-theme="dark"] .filter-popover { box-shadow:0 16px 44px rgb(0 0 0 / 38%); }
 [data-theme="dark"] .app-menu-item:hover,[data-theme="dark"] .app-menu-item:focus-visible { background:#25312d; }
 [data-theme="dark"] .app-menu-item.primary { color:#102019; background:#91c7b5; }
 [data-theme="dark"] .app-menu-item.primary:hover,[data-theme="dark"] .app-menu-item.primary:focus-visible { background:#a2d3c2; }
@@ -62,6 +62,8 @@
 [data-theme="dark"] .archive-tag,[data-theme="dark"] .badge.complete { color:#aeb8b4; background:#2d3532; }
 [data-theme="dark"] .retro-tag { color:#d4bd87; background:#38301f; }
 [data-theme="dark"] .badge.scheduled-to-plan { color:#b0c2e0; background:#273448; }
+[data-theme="dark"] .badge.scheduled-idea { color:#c9c2b0; background:#36322a; }
+[data-theme="dark"] .project-table .provisional { color:#8c958f; }
 [data-theme="dark"] .badge.scheduled-planning { color:#c3b9ee; background:#302c49; }
 [data-theme="dark"] .badge.hold { color:#e0ba81; background:#3d3020; }
 [data-theme="dark"] .badge.blocked { color:#efaa9e; background:#472925; }

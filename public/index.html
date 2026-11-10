@@ -23,6 +23,8 @@
             <div class="app-menu-panel">
               <a class="app-menu-item" id="personal-todos-link" href="/todos.html" hidden><span aria-hidden="true">✓</span><strong>My to-do list</strong><small>Private tasks, just for you</small></a>
               <a class="app-menu-item" href="/kanban.html"><span aria-hidden="true">▦</span><strong>Kanban board</strong><small>General tasks and project work</small></a>
+              <a class="app-menu-item" href="/progress.html"><span aria-hidden="true">↗</span><strong>Progress</strong><small>Daily numbers and reports</small></a>
+              <a class="app-menu-item" href="/sequence.html"><span aria-hidden="true">≡</span><strong>Sequence</strong><small>What happens next, and who does it</small></a>
               <a class="app-menu-item" href="/okrs.html"><span aria-hidden="true">◎</span><strong>OKRs</strong><small>Objectives, results, and linked work</small></a>
               <a class="app-menu-item" href="/teams.html"><span aria-hidden="true">◎</span><strong>Teams</strong><small>View capacity</small></a>
               <a class="app-menu-item" href="/docs.html"><span aria-hidden="true">?</span><strong>Docs</strong><small>API and MCP reference</small></a>
@@ -39,8 +41,8 @@
         </div>
       </header>
 
-      <section class="intro">
-        <div>
+      <section class="intro page-head">
+        <div class="page-title">
           <p class="eyebrow">Portfolio view</p>
           <h1>What deserves attention?</h1>
           <p class="subtitle">Compare active work by impact and urgency. Re-score as the landscape changes.</p>
@@ -76,6 +78,7 @@
             <div class="matrix-controls">
               <div class="matrix-key" aria-label="Project status colors">
                 <strong>Status</strong>
+                <span class="idea-key" hidden><i class="status-swatch idea"></i>Idea</span>
                 <span><i class="status-swatch to-plan"></i>To plan</span>
                 <span><i class="status-swatch planning"></i>Planning</span>
                 <span><i class="status-swatch active"></i>Active</span>
@@ -85,6 +88,7 @@
               </div>
               <div class="matrix-actions">
                 <label class="completed-toggle"><input id="show-completed" type="checkbox"> Show completed</label>
+                <label class="completed-toggle"><input id="show-ideas" type="checkbox"> Show ideas</label>
                 <button class="matrix-expand" id="toggle-matrix-presentation" type="button" aria-pressed="false" aria-label="Expand priority matrix for presentation"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 2H2v4M10 2h4v4M14 10v4h-4M6 14H2v-4"></path></svg><span>Present</span></button>
               </div>
             </div>
@@ -112,8 +116,17 @@
       </section>
 
       <section class="project-list" aria-labelledby="project-list-title">
-        <div class="list-head"><div><p class="eyebrow">Portfolio details</p><h2 id="project-list-title">All projects</h2></div><div class="list-actions"><button class="button primary list-add-project" data-project-editor id="list-add-project" type="button"><span aria-hidden="true">+</span> Add project</button><label class="completed-toggle"><input id="show-archived" type="checkbox"> Show archived</label><span id="list-count">0 projects</span></div></div>
-        <div id="project-rows"></div>
+        <div class="list-head"><div><p class="eyebrow">Portfolio details</p><h2 id="project-list-title">All projects</h2></div><div class="list-actions"><button class="button primary list-add-project" data-project-editor id="list-add-project" type="button"><span aria-hidden="true">+</span> Add project</button><label class="completed-toggle"><input id="show-archived" type="checkbox"> Show archived</label><details class="column-menu views-menu" id="views-menu" hidden><summary class="button" aria-label="Saved views">Views</summary><div class="column-menu-panel views-panel"><p class="views-title">Saved views</p><ul class="views-list" id="views-list"></ul><form class="views-save" id="views-save"><label class="sr-only" for="view-name">View name</label><input id="view-name" name="name" maxlength="80" placeholder="Name this view" required><button class="button primary" type="submit">Save</button></form><p class="views-hint">Saving under an existing name replaces that view.</p></div></details><details class="column-menu" id="column-menu"><summary class="button" aria-label="Choose columns">Columns</summary><fieldset class="column-menu-panel" id="column-menu-panel"><legend>Show columns</legend></fieldset></details><span id="list-count" aria-live="polite">0 projects</span></div></div>
+        <div class="filter-chips" id="filter-chips" hidden><span class="filter-chips-label" id="filter-chips-label">Filters</span><ul class="filter-chip-list" id="filter-chip-list" aria-labelledby="filter-chips-label"></ul><button class="text-button" id="clear-filters" type="button">Clear all</button></div>
+        <div class="filter-popover" id="filter-popover" role="dialog" aria-labelledby="filter-popover-title" hidden></div>
+        <div class="table-scroll" id="project-rows">
+          <table class="project-table" id="project-table" aria-labelledby="project-list-title" aria-describedby="project-table-help">
+            <thead><tr id="project-table-head"></tr></thead>
+            <tbody id="project-table-body"></tbody>
+          </table>
+          <p class="no-results" id="project-table-empty" hidden>No projects match this view.</p>
+          <p class="sr-only" id="project-table-help">Select a column header to sort by it; select it again to reverse. Hold Shift to add a secondary sort. Use the filter button in a header to filter that column, or select a value in a cell to filter on it. Select a row, or press Enter on it, to show its linked cards.</p>
+        </div>
       </section>
     </main>
 
@@ -130,7 +143,7 @@
           <label class="field"><span>Team</span><select name="team" required></select></label>
           <label class="field"><span>Status</span><select name="status"><option>Scheduled</option><option selected>Active</option><option>On hold</option><option>Blocked</option><option>Complete</option></select></label>
         </div>
-        <label class="field wide scheduled-stage-field" id="scheduled-stage-field" hidden><span>Scheduled stage</span><select name="scheduleStage"><option>To plan</option><option>Planning</option></select></label>
+        <label class="field wide scheduled-stage-field" id="scheduled-stage-field" hidden><span>Scheduled stage</span><select name="scheduleStage"><option>Idea</option><option>To plan</option><option>Planning</option></select></label>
         <label class="field wide" id="capacity-field"><span>People assigned <small id="capacity-help">Counts against team capacity</small></span><input name="capacity" type="number" min="0" max="999" step="1" value="0"></label>
         <label class="field wide"><span>Context <small>Optional</small></span><textarea name="description" maxlength="1000" rows="3" placeholder="What outcome does this project unlock?"></textarea></label>
         <p class="project-linked-count" id="project-dialog-card-count" hidden></p>

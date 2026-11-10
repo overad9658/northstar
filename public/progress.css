@@ -1,0 +1,203 @@
+/* Progress page. One accent color means "waiting on you"; everything else stays neutral.
+   docs/progress-page.md explains the layout and the reading order. */
+:root {
+  --series:#3f504a; --series-wash:#3f504a; --estimated:#7b8883; --grid:#e6ebe8;
+  --tile:#fff; --tile-line:#dfe5e1; --tile-hover:#f6f8f7;
+  --good-ink:#1f5a43; --good-bg:#e1efe7; --bad-ink:#8c3524; --bad-bg:#f7e3de; --flat-ink:#5d6864; --flat-bg:#edf0ee;
+  --accent:#2c50c4; --accent-soft:#e9eefc; --flag:#58645f; --skeleton:#e9edea; --skeleton-shine:#f5f7f6;
+}
+[data-theme="dark"] {
+  --series:#c4d2cc; --series-wash:#9fb8ae; --estimated:#71817b; --grid:#28332f;
+  --tile:#18211e; --tile-line:#2e3a36; --tile-hover:#1d2824;
+  --good-ink:#a6dcc5; --good-bg:#1d3a2f; --bad-ink:#f3b7a9; --bad-bg:#45261f; --flat-ink:#a9b5b0; --flat-bg:#232d2a;
+  --accent:#9bb3ff; --accent-soft:#1f2848; --flag:#a9b5b0; --skeleton:#1e2825; --skeleton-shine:#26322e;
+}
+
+.visually-hidden { position:absolute; width:1px; height:1px; margin:-1px; padding:0; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0; }
+.progress-head { max-width:1380px; margin:0 auto; }
+.progress-settings { margin-left:auto; align-self:center; width:34px; height:34px; padding:0; border:1px solid var(--line); border-radius:9px; color:var(--muted); background:var(--white); font-size:16px; line-height:1; }
+.progress-settings:hover { color:var(--ink); }
+.progress-settings[hidden] { display:none; }
+/* The headline spans the top; the panel starts level with the first row of tiles and runs the
+   bands' full height, so the Z ends on its list. */
+.progress-grid {
+  max-width:1380px; margin:0 auto; display:grid; gap:20px 28px;
+  grid-template-columns:minmax(0,1fr) 300px;
+  grid-template-areas:"headline headline" "bands needs" "focus focus" "reports reports";
+}
+.progress-headline { grid-area:headline; min-width:0; }
+.progress-headline:empty { display:none; }
+.progress-needs { grid-area:needs; align-self:stretch; display:grid; }
+/* One grid for every band: each band is a column, and rows share one height so a row reads across. */
+.bands { grid-area:bands; min-width:0; display:grid; grid-template-columns:repeat(var(--bands, 3), minmax(0,1fr)); grid-auto-rows:1fr; column-gap:36px; row-gap:10px; }
+.focus { grid-area:focus; }
+.reports-section { grid-area:reports; }
+.progress-grid :focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+
+/* 1. The ask. */
+.headline { margin:0; display:flex; align-items:baseline; gap:12px; max-width:62ch; font:400 clamp(22px,2.4vw,30px)/1.25 Georgia,serif; letter-spacing:-.01em; color:var(--ink); }
+.status-dot { flex:0 0 auto; width:12px; height:12px; border-radius:50%; background:var(--accent); transform:translateY(-2px); box-shadow:0 0 0 4px var(--accent-soft); }
+
+/* 2. Bands: spacing alone separates them; tiles in a band sit close together. */
+.band { display:contents; }
+.tile {
+  position:relative; width:100%; min-width:0; padding:14px 16px 12px; border:1px solid var(--tile-line); border-radius:12px; background:var(--tile);
+  color:var(--ink); text-align:left; display:grid; grid-template-rows:auto 42px 22px 40px 32px; align-content:start; row-gap:4px; font:inherit;
+  grid-column:var(--col, auto); grid-row:var(--row, auto);
+  grid-template-areas:"label" "value" "chip" "spark" "because";
+  transition:border-color .15s,background .15s,box-shadow .15s;
+}
+.tile-label { grid-area:label; color:var(--ink); font-size:13px; font-weight:650; line-height:1.3; }
+.tile-value { grid-area:value; }
+.tile-chip { grid-area:chip; }
+.tile .spark { grid-area:spark; }
+.tile-because { grid-area:because; }
+.tile:hover,.tile.linked { background:var(--tile-hover); border-color:var(--series-wash); }
+.tile.linked { box-shadow:0 0 0 1px var(--series-wash); }
+.tile[aria-pressed="true"] { border-color:var(--series); box-shadow:inset 0 0 0 1px var(--series); }
+.tile-value { display:flex; align-items:baseline; gap:6px; min-height:40px; }
+.tile-number { font-size:34px; font-weight:650; line-height:1.15; letter-spacing:-.02em; font-variant-numeric:tabular-nums; }
+.tile-unit { color:var(--muted); font-size:13px; }
+.tile-chip { justify-self:start; align-self:center; padding:2px 8px; border-radius:999px; font-size:12px; font-weight:700; font-variant-numeric:tabular-nums; line-height:18px; }
+.tile-chip.empty { visibility:hidden; }
+.tone-good { color:var(--good-ink); background:var(--good-bg); }
+.tone-bad { color:var(--bad-ink); background:var(--bad-bg); }
+.tone-neutral { color:var(--flat-ink); background:var(--flat-bg); }
+.tile-because { color:var(--muted); font-size:12px; line-height:1.35; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+
+/* Not measured yet: an empty outline with a faint dotted baseline. The reason is in the title. */
+.tile.unmeasured { background:transparent; border-style:dashed; }
+.tile.unmeasured .tile-label { color:var(--muted); }
+.spark-empty { stroke:var(--estimated); stroke-width:1.5; stroke-dasharray:1 4; stroke-linecap:round; vector-effect:non-scaling-stroke; }
+
+.spark { width:100%; height:40px; overflow:visible; }
+.stop-top { stop-color:var(--series-wash); stop-opacity:.28; }
+.stop-bottom { stop-color:var(--series-wash); stop-opacity:0; }
+.spark-line,.focus-line { fill:none; stroke:var(--series); stroke-width:2; stroke-linejoin:round; stroke-linecap:round; vector-effect:non-scaling-stroke; }
+.spark-line.estimated,.focus-line.estimated { stroke:var(--estimated); stroke-dasharray:4 4; }
+.spark-end { fill:var(--series); stroke:var(--tile); stroke-width:2; vector-effect:non-scaling-stroke; }
+.spark-end.estimated { fill:var(--tile); stroke:var(--estimated); }
+.crosshair { stroke:var(--muted); stroke-width:1; vector-effect:non-scaling-stroke; opacity:0; }
+.tracking .crosshair { opacity:.7; }
+
+.spark-tip,.focus-tip { position:fixed; z-index:60; display:grid; gap:2px; padding:8px 10px; border:1px solid var(--line); border-radius:8px; background:var(--white); color:var(--muted); font-size:12px; box-shadow:0 10px 28px rgb(20 30 26 / 16%); pointer-events:none; max-width:240px; }
+.spark-tip strong,.focus-tip strong { color:var(--ink); font-size:15px; font-variant-numeric:tabular-nums; }
+.tip-note { color:var(--ink); }
+.tip-flag { color:var(--ink); font-weight:650; }
+.spark-tip[hidden],.focus-tip[hidden] { display:none; }
+
+/* 5. Waiting on you: the end of the Z, and the only place the accent lives besides the dot. */
+.needs { padding:18px 18px 16px; border:1px solid var(--tile-line); border-radius:14px; background:var(--tile); display:grid; gap:14px; align-content:start; }
+.needs.has-items { box-shadow:inset 3px 0 0 var(--accent); }
+.needs-empty { margin:0; color:var(--muted); font-size:13px; line-height:1.45; }
+.needs-list { margin:0; padding:0 0 0 18px; display:grid; gap:12px; font-size:14px; line-height:1.35; }
+.needs-list a { color:var(--ink); font-weight:600; text-decoration:none; }
+.needs-list a:hover { text-decoration:underline; }
+.needs-meta { display:block; color:var(--muted); font-size:12px; }
+.needs-board { color:var(--accent); font-size:13px; font-weight:650; }
+.text-button { justify-self:start; padding:0; border:0; background:none; color:var(--muted); font-size:12px; text-decoration:underline; }
+.needs-form { display:grid; gap:10px; }
+.needs-form .field { display:grid; gap:4px; font-size:12px; color:var(--muted); }
+.needs-form select { padding:7px 9px; border:1px solid var(--line); border-radius:8px; color:var(--ink); background:var(--white); }
+.needs-form-actions { display:flex; gap:8px; }
+
+/* 4. The focus chart and its milestone strip. */
+.focus { padding:20px 22px 18px; border:1px solid var(--tile-line); border-radius:16px; background:var(--tile); scroll-margin-top:16px; }
+.focus-head { display:flex; justify-content:space-between; align-items:start; gap:16px; flex-wrap:wrap; }
+.focus-head h2 { margin:0; font:400 24px/1.2 Georgia,serif; }
+.focus-description { margin:4px 0 0; color:var(--muted); font-size:13px; max-width:70ch; }
+.range { display:flex; gap:2px; padding:3px; border:1px solid var(--line); border-radius:10px; }
+.range-button { padding:6px 12px; border:0; border-radius:7px; background:transparent; color:var(--muted); font-size:12px; font-weight:650; transition:background .15s,color .15s; }
+.range-button[aria-pressed="true"] { background:var(--flat-bg); color:var(--ink); }
+.focus-legend { margin:10px 0 0; display:flex; gap:18px; color:var(--muted); font-size:12px; min-height:16px; }
+.legend-estimated::before { content:""; display:inline-block; width:18px; margin-right:6px; vertical-align:middle; border-top:2px dashed var(--estimated); }
+.legend-flag::before { content:""; display:inline-block; width:0; height:0; margin-right:6px; vertical-align:-1px; border-left:8px solid var(--flag); border-top:4px solid transparent; border-bottom:4px solid transparent; }
+.focus-plot { position:relative; margin-top:8px; }
+.focus-svg { display:block; width:100%; height:auto; overflow:visible; border-radius:6px; }
+.focus-svg .grid line { stroke:var(--grid); stroke-width:1; }
+.chart-label { fill:var(--muted); font-size:11px; font-variant-numeric:tabular-nums; }
+.focus-area { stroke:none; }
+.crosshair-dot { fill:var(--series); stroke:var(--tile); stroke-width:2; opacity:0; }
+.crosshair-dot.estimated { fill:var(--tile); stroke:var(--estimated); }
+.tracking .crosshair-dot { opacity:1; }
+.flag-pole { stroke:var(--flag); stroke-width:1.5; }
+.flag-cloth { fill:var(--flag); transition:transform .15s; transform-origin:0 -14px; }
+.flag-hit { fill:transparent; }
+.flag.active .flag-cloth,.flag:hover .flag-cloth { transform:scale(1.4); }
+.focus-tip { position:absolute; }
+.focus-empty { margin:24px 0; color:var(--muted); }
+.focus-single { margin:20px 0 8px; display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 12px; color:var(--muted); font-size:14px; }
+.focus-single strong { color:var(--ink); font-size:34px; font-weight:650; font-variant-numeric:tabular-nums; }
+.focus-single .tip-note { flex-basis:100%; }
+.strip { margin:14px 0 0; padding:12px 0 0; border-top:1px solid var(--grid); list-style:none; display:flex; flex-wrap:wrap; gap:8px 22px; font-size:13px; }
+.strip-item { display:flex; gap:8px; align-items:baseline; border-radius:6px; }
+.strip-item time { color:var(--muted); font-size:12px; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.strip-item::before { content:""; width:0; height:0; border-left:7px solid var(--flag); border-top:3.5px solid transparent; border-bottom:3.5px solid transparent; transform:translateY(-1px); }
+.focus-table { margin-top:14px; font-size:13px; }
+.focus-table summary { color:var(--muted); cursor:pointer; width:max-content; }
+.focus-table .docs-table { max-height:320px; overflow:auto; }
+.focus-table td.num { font-variant-numeric:tabular-nums; }
+
+/* Daily reports: a timeline; each day opens in place. */
+.reports-section h2 { margin:8px 0 12px; font:400 24px Georgia,serif; }
+.reports { margin:0; padding:0; list-style:none; border-left:1px solid var(--tile-line); margin-left:6px; }
+.report { position:relative; padding:0 0 4px 22px; }
+.report::before { content:""; position:absolute; left:-5px; top:16px; width:9px; height:9px; border-radius:50%; background:var(--paper); border:1.5px solid var(--series-wash); }
+.report.open::before { background:var(--series); border-color:var(--series); }
+.report-toggle { width:100%; padding:10px 8px; border:0; border-radius:8px; background:transparent; color:var(--ink); text-align:left; display:flex; flex-wrap:wrap; gap:4px 14px; align-items:baseline; transition:background .15s; }
+.report-toggle:hover { background:var(--tile-hover); }
+.report-toggle time { font-weight:650; font-size:14px; white-space:nowrap; }
+.report-title { color:var(--muted); font-size:13px; }
+.report-panel { display:grid; grid-template-rows:0fr; transition:grid-template-rows .28s ease; }
+.report.open .report-panel { grid-template-rows:1fr; }
+.report-inner { overflow:hidden; min-height:0; padding:0 8px; }
+.report.open .report-inner { padding-bottom:14px; }
+.bullets { margin:4px 0 6px; padding-left:18px; display:grid; gap:6px; font-size:14px; line-height:1.45; }
+.bullets li[data-key] { cursor:pointer; border-radius:6px; padding:1px 6px; margin-left:-6px; transition:background .15s; }
+.bullets li.linked,.bullets li[data-key]:hover { background:var(--flat-bg); }
+.report-body { font-size:14px; max-width:78ch; }
+.report-body > :first-child { margin-top:6px; }
+
+/* First day. */
+.progress-empty { grid-column:1 / -1; max-width:60ch; padding:28px; border:1px dashed var(--tile-line); border-radius:14px; color:var(--muted); line-height:1.55; }
+.progress-empty h2 { margin:0 0 8px; color:var(--ink); font:400 22px Georgia,serif; }
+.progress-empty p { margin:0 0 8px; }
+.progress-empty a { color:var(--ink); }
+
+/* Loading: skeletons hold the layout so nothing jumps when the data arrives. */
+.tile.skeleton,.skeleton-block { min-height:150px; border-color:transparent; background:linear-gradient(100deg,var(--skeleton) 30%,var(--skeleton-shine) 50%,var(--skeleton) 70%) 0 0 / 300% 100%; animation:shimmer 1.4s linear infinite; }
+.skeleton-block { min-height:180px; }
+@keyframes shimmer { to { background-position:-150% 0; } }
+
+/* Load: tiles appear in reading order, 40 ms apart. */
+.bands.reveal .tile { animation:tile-in .32s ease-out both; animation-delay:calc(var(--i, 0) * 40ms); }
+@keyframes tile-in { from { opacity:0; transform:translateY(6px); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .progress-grid *,.progress-grid *::before { animation:none !important; transition:none !important; }
+}
+
+@media (max-width:1100px) {
+  .progress-grid { grid-template-columns:minmax(0,1fr) 260px; }
+  .bands { column-gap:24px; }
+}
+/* Phone and narrow tablet: same order, stacked. Headline, waiting on you, bands, chart, reports. */
+@media (max-width:860px) {
+  .progress-grid { grid-template-columns:minmax(0,1fr); grid-template-areas:"headline" "needs" "bands" "focus" "reports"; gap:18px; }
+  .progress-needs { align-self:start; }
+  /* One column; a band is a group, and a wider gap separates the groups. */
+  .bands { display:flex; flex-direction:column; gap:22px; }
+  .band { display:grid; gap:8px; }
+  .tile {
+    grid-column:auto; grid-row:auto; grid-template-columns:minmax(0,1fr) minmax(0,44%); column-gap:14px;
+    grid-template-rows:auto auto auto auto; grid-template-areas:"label spark" "value spark" "chip spark" "because because";
+  }
+  .tile .spark { align-self:center; }
+  .tile-because:empty { display:none; }
+  .focus { padding:16px 14px; }
+  .progress-headline:empty { display:none; }
+}
+@media (max-width:420px) {
+  .tile { padding:12px 14px; }
+  .tile-number { font-size:28px; }
+}

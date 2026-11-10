@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  emptyTeamBoards,
   filterProjects,
   findFocusNowOccupant,
   projectLabel,
@@ -42,4 +43,17 @@ test('Focus Now conflict previews are team-scoped and ignore the edited project'
   assert.equal(findFocusNowOccupant(projects, edited, 6, 6)?.id, 1);
   assert.equal(findFocusNowOccupant(projects, edited, 5, 6), null);
   assert.equal(findFocusNowOccupant(projects, projects[0], 9, 9), null);
+});
+
+test('an empty team view points to the boards of selected teams that only have cards', () => {
+  const teams = [
+    { id: 1, name: 'Platform', boardCardCount: 3 },
+    { id: 2, name: 'Ops', boardCardCount: 4 },
+    { id: 3, name: 'Design', boardCardCount: 0 },
+  ];
+  assert.deepEqual(emptyTeamBoards([], teams, ['Ops']), [{ id: 2, name: 'Ops', cardCount: 4 }]);
+  assert.deepEqual(emptyTeamBoards([], teams, ['Ops', 'Design', 'Platform']).map((board) => board.id), [1, 2]);
+  assert.deepEqual(emptyTeamBoards([], teams, ['Design']), []);
+  assert.deepEqual(emptyTeamBoards([], teams, []), []);
+  assert.deepEqual(emptyTeamBoards([projects[0]], teams, ['Ops']), []);
 });

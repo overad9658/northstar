@@ -7,6 +7,8 @@ import { createPlanningService } from './planning-service.mjs';
 import { createBackupService } from './backup-service.mjs';
 import { createAuthService } from './auth-service.mjs';
 import { createSsoSettings } from './sso-settings.mjs';
+import { createProgressService } from './progress-service.mjs';
+import { createActivityService } from './activity-service.mjs';
 
 test('PostgreSQL supports portfolio, planning, auth, transactions, restore and restart', {
   skip: !process.env.TEST_DATABASE_URL,
@@ -78,5 +80,43 @@ test('PostgreSQL supports portfolio, planning, auth, transactions, restore and r
     db = openDatabase(undefined, config);
     assert.equal(createProjectService(db).list().find((item) => item.id === project.id).name, project.name);
     assert.equal(createAuthService(db, { disabled: false }).userForRequest(req).id, user.id);
+  } finally { db.close(); }
+});
+
+test('PostgreSQL migrates and stores progress: metrics, definitions, reports, milestones, settings and backups', {
+  skip: !process.env.TEST_DATABASE_URL,
+}, () => {
+  const config = { client: 'postgres', connectionString: process.env.TEST_DATABASE_URL };
+  let db = openDatabase(undefined, config);
+  try {
+    const progress = createProgressService(db);
+    const backup = createBackupService(db);
+    const date = `20${String(Date.now() % 90 + 10)}-11-03`;
+    progress.defineMetric('pg_merged', { label: 'Merged', direction: 'up_good', band: 'trust', question: 'How much merged?' });
+    assert.deepEqual(progress.defineMetric('pg_merged', { label: 'Merged' }).changed, []);
+    assert.equal(progress.defineMetric('pg_hidden', { label: 'Hidden', hidden: true }).def.hidden, true);
+    progress.recordMetrics({ date, metrics: [{ key: 'pg_hidden', value: 1 }] });
+    assert.equal(progress.removeMetric('pg_hidden').readingsKept, 1);
+    assert.equal(progress.listMetrics({ keys: 'pg_hidden', from: date, to: date }).length, 1);
+    const day = { date, metrics: [{ key: 'pg_merged', value: 2.5, note: 'Half', rebuilt: true }, { key: 'pg_queue', value: null }] };
+    assert.equal(progress.recordMetrics(day).created, 2);
+    assert.equal(progress.recordMetrics(day).unchanged, 2);
+    const rows = progress.listMetrics({ keys: 'pg_merged,pg_queue', from: date, to: date });
+    assert.deepEqual(rows.map((row) => [row.key, row.value, row.rebuilt, typeof row.updatedAt]), [['pg_merged', 2.5, true, 'string'], ['pg_queue', null, false, 'string']]);
+    assert.equal(progress.upsertReport(date, { markdown: '# Day', bullets: [{ text: 'Half', metric_key: 'pg_merged' }] }).created, true);
+    assert.equal(progress.upsertReport(date, { markdown: '# Day' }).changed, false);
+    assert.equal(progress.addMilestone({ date, label: 'Start', metricKey: 'pg_merged' }).created, true);
+    assert.equal(progress.listMilestones({ from: date, to: date })[0].metricKey, 'pg_merged');
+    const types = createActivityService(db).list({ limit: 500 }).items.map((item) => item.type);
+    for (const type of ['metrics.recorded', 'metric.defined', 'report.created', 'milestone.added']) assert.ok(types.includes(type), type);
+
+    const before = progress.export();
+    const exported = backup.export();
+    backup.restore(exported);
+    assert.deepEqual(progress.export(), before);
+    progress.recordMetrics({ date, metrics: [{ key: 'pg_after', value: 1 }] });
+    db.close();
+    db = openDatabase(undefined, config);
+    assert.equal(createProgressService(db).getReport(date).bullets[0].metric_key, 'pg_merged');
   } finally { db.close(); }
 });

@@ -116,11 +116,12 @@ curl -b cookies.txt -X POST http://localhost:3000/api/api-tokens \
 
 | Method | Path | Auth | Purpose |
 | --- | --- | --- | --- |
-| `GET` | `/api/projects` | token endpoint | List projects. Filter with `?projectId=` or `?externalUrl=`. |
-| `POST` | `/api/projects` | token endpoint | Create a project. `name`, `impact`, `urgency`, `confidence` and `effort` are required. |
+| `GET` | `/api/projects` | token endpoint | List projects. Filter with `?projectId=` or `?externalUrl=`, and sort or filter like the projects table (below). |
+| `POST` | `/api/projects` | token endpoint | Create a project. `name`, `impact`, `urgency`, `confidence` and `effort` are required, except for an idea (below). |
 | `PUT` | `/api/projects/:id` | token endpoint | Partially update a project. |
 | `DELETE` | `/api/projects/:id` | token endpoint | Delete a project. `204`. |
 | `PUT` | `/api/projects/upsert?key=projectId` | token endpoint | Create or update by `projectId` (or `key=externalUrl`). Returns `{ created, project }`, `201` when created, `200` when updated. |
+| `POST` | `/api/projects/:id/promote` | token endpoint (admin or the team's manager) | Promote an idea to a plan: its `scheduleStage` goes from `Idea` to `To plan`, and it joins the matrix. `409` if the project is not an idea. |
 | `GET` | `/api/projects/:id/moves` | token endpoint | Matrix movement history for one project. |
 | `POST` | `/api/projects/bulk/add` | write token | Create up to 100 projects atomically: `{ "projects": [...] }`. |
 | `POST` | `/api/projects/bulk/archive` | write token | Archive projects: `{ "projectIds": [...] }`. |
@@ -128,7 +129,28 @@ curl -b cookies.txt -X POST http://localhost:3000/api/api-tokens \
 
 Optional project fields: `projectId`, `externalUrl`, `description`, `retrospective`, `blockedNote`,
 `archiveNote`, `restoreNote`, `team`, `status` (`Scheduled`, `Active`, `On hold`, `Blocked`,
-`Complete`), `scheduleStage`, `capacity`, `archived`, `hiddenFromReadOnly`.
+`Complete`), `scheduleStage` (`Idea`, `To plan` or `Planning`, for a `Scheduled` project), `capacity`, `archived`,
+`hiddenFromReadOnly`.
+
+**Ideas.** A `Scheduled` project with `scheduleStage: "Idea"` is a proposal that is not a plan yet. Its
+scores are optional (each one left out is `5`) and the page shows them as provisional. Ideas stay
+off the priority matrix and out of Focus Now unless the viewer turns on *Show ideas*. List them with
+`f.stage=Idea`; promote one with `POST /api/projects/:id/promote`.
+
+Table parameters, the same ones the projects table puts in its URL:
+
+| Parameter | Example | Meaning |
+| --- | --- | --- |
+| `sort` | `sort=score:desc,name:asc` | Sort keys in order; `asc` or `desc`. Default `score:desc,updated:desc`. |
+| `q` | `q=billing` | Text in the ID, name, team, description or source link. |
+| `f.<column>` (text) | `f.name=api` | Contains, any case. Text columns: `id`, `name`. |
+| `f.<column>` (choice) | `f.team=Platform&f.team=Design` | Any of the repeated values. Choice columns: `team`, `status`, `stage` (a Scheduled project's stage; empty for other statuses). |
+| `f.<column>` (range) | `f.impact=5..`, `f.updated=2026-01-01..2026-01-31` | Inclusive `min..max`, either end optional; a single value means exactly it. Range columns: `impact`, `urgency`, `confidence`, `effort`, `people`, `score`, `cards`, `decisions`, `updated`. |
+
+Unknown columns are ignored. A `cols=` parameter (shown columns) is accepted and ignored by the API.
+
+Read-only fields on every listed project: `score`, `cardCount` (linked cards), `openDecisionCount`
+(linked, unarchived cards with a decision that has no decided option), `createdAt`, `updatedAt`.
 
 ```sh
 curl -X POST http://localhost:3000/api/projects \
@@ -143,11 +165,40 @@ curl -X POST http://localhost:3000/api/projects \
 The bulk endpoints return `503` when no write token is configured. Add and archive return
 `{ count, projects }`; delete returns `{ count, projectIds }`.
 
+## Saved views
+
+A view is a name plus the projects table's parameters (the same `q`, `sort`, `cols` and `f.<column>`
+the table puts in its URL and `GET /api/projects` accepts). Views belong to one person: the signed-in
+user, or the user who created the API token in use. The token generated on the admin page belongs to
+the admin who generated it (regenerate one made before views existed, which has no recorded creator).
+The `API_TOKEN` environment variable belongs to nobody, so it gets `400` here. Read tokens may list
+and read views but not change them.
+
+| Method | Path | Auth | Purpose |
+| --- | --- | --- | --- |
+| `GET` | `/api/views` | token endpoint | Your views, by name. |
+| `GET` | `/api/views/:id` | token endpoint | One view. |
+| `POST` | `/api/views` | token endpoint | Save a view: `{ "name", "params" }`. `201`; `409` if you already have that name (any case). |
+| `PUT` | `/api/views/:id` | token endpoint | Rename it or replace its `params`. |
+| `DELETE` | `/api/views/:id` | token endpoint | Delete it. `204`. |
+
+`params` is a query string or a table state object (`{ query, sort: [{ column, direction }], columns, filters }`).
+It is stored in canonical form: unknown columns and empty filters are dropped. Each view comes back
+with `params` and the parsed `state`. Apply a view by appending its `params` to `/api/projects?`
+or to the page URL (`/?<params>`). Up to 100 views per user.
+
+```sh
+curl -X POST http://localhost:3000/api/views \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"name":"Blocked on Platform","params":"f.status=Blocked&f.team=Platform&sort=score:desc"}'
+curl "http://localhost:3000/api/projects?f.status=Blocked&f.team=Platform&sort=score:desc" -H "Authorization: Bearer $TOKEN"
+```
+
 ## Teams and capacity
 
 | Method | Path | Auth | Purpose |
 | --- | --- | --- | --- |
-| `GET` | `/api/teams` | token endpoint | List teams with their capacity, card and member counts. |
+| `GET` | `/api/teams` | token endpoint | List teams with their capacity, card and member counts (`cardCount` includes archived cards; `boardCardCount` is the unarchived cards on the board). |
 | `POST` | `/api/teams` | token endpoint (admin) | Create a team: `{ "name", "capacity" }`. |
 | `PUT` | `/api/teams/:id` | token endpoint (admin or the team's manager) | Rename or resize a team. |
 | `DELETE` | `/api/teams/:id` | token endpoint (admin) | Delete a team with no projects or cards. |
@@ -179,21 +230,34 @@ from `GET /api/kanban?teamId=<id>`). Creating a column without
 
 | Method | Path | Auth | Purpose |
 | --- | --- | --- | --- |
-| `GET` | `/api/kanban` | token endpoint | Columns and cards, with tags and project links. Archived cards only with `?archived=include` or `?archived=only`. |
+| `GET` | `/api/kanban` | token endpoint | Columns and cards, with tags and project links. In each column, ranked cards come first by `rank`, then unranked cards by `position`. Archived cards only with `?archived=include` or `?archived=only`. |
 | `GET` | `/api/kanban/projects` | token endpoint | Project ids and names for card links. |
 | `GET` | `/api/kanban/report` | token endpoint | Every card's column history and durations. |
 | `POST` | `/api/kanban/columns` | token endpoint | Create a column: `{ "name" }`. |
 | `PUT`, `DELETE` | `/api/kanban/columns/:id` | token endpoint | Rename (`name`) or reorder (`position`, 0-based on that team's board; the others shift so positions stay 0..n-1) a column, or delete it (and its cards). |
-| `GET` | `/api/kanban/cards` | token endpoint | Find cards by `?key=`, `?externalUrl=`, `?projectId=`, `?decision=open`, `?tag=` or `?source=`; add `?archived=include` or `?archived=only` for archived cards. |
+| `GET` | `/api/kanban/cards` | token endpoint | Each card includes `columnName`. Find cards by `?key=`, `?externalUrl=`, `?projectId=`, `?decision=open`, `?tag=` or `?source=`; add `?archived=include` or `?archived=only` for archived cards. `?sort=rank` lists ranked cards by rank (ties by id), then unranked ones by id. |
 | `POST` | `/api/kanban/cards` | token endpoint | Create a card: `columnId` and `title` required. |
 | `GET`, `PUT`, `DELETE` | `/api/kanban/cards/:id` | token endpoint | Read, partially update (including `columnId` to move and `archived: true/false` to archive or restore) or delete a card. |
 | `PUT` | `/api/kanban/cards/upsert` | token endpoint | Create or update a card by `externalUrl` (default) or by its own `key` with `?key=key`. Returns `{ created, card }`. |
+| `PUT` | `/api/kanban/cards/ranks` | token endpoint | Set many ranks at once: `{ "ranks": [{ "id", "rank" }] }` (1–1000 entries; `rank` null clears it). All are written or none. Returns `{ ranks: [{ id, rank, changed }] }`. |
 | `GET` | `/api/kanban/cards/:id/history` | token endpoint | Time spent in each column. |
 | `GET`, `POST` | `/api/kanban/cards/:id/notes` | token endpoint | List notes or add one: `{ "body" }`. |
 | `DELETE` | `/api/kanban/cards/:id/notes/:noteId` | token endpoint | Delete a note. |
 
 Optional card fields: `description`, `assignee`, `externalUrl`, `nextStep`, `decision`,
-`projectId`, `tags`.
+`projectId`, `tags`, `rank`, `objective`, `blockedBy`.
+
+- `rank` is a whole number from 0 to 1000000, or null for none. It is a card's place in a
+  sequence across boards and survives moves between columns. The board orders each column by it, and
+  dragging a card within its column on the board sets it between its new neighbours. `position`, a card's order inside
+  its column, is set by the board and cannot be sent.
+- `objective` is short text (at most 300 characters).
+- `blockedBy` is a list of other card ids (at most 50). Sending it replaces the stored list; a
+  card cannot block itself, and deleting a card removes it from every list it was on.
+- `rankReason` is one line (at most 80 characters): why the card sits where it does. `reasonFull`
+  (at most 300) is the longer reason. `waitUntil` is an ISO date and time before which the card
+  waits on the clock, or null. `outcome` (at most 200) is what the card's chain of work reaches.
+  A sequencing pass usually sets these; see [Sequence](#sequence).
 
 ```sh
 curl -X PUT http://localhost:3000/api/kanban/cards/7 \
@@ -210,7 +274,8 @@ curl -X PUT http://localhost:3000/api/kanban/cards/7 \
 
 Event types: `project.created`, `project.moved`, `project.status`, `project.archived`,
 `project.restored`, `project.team`, `project.capacity`, `planning.decided`, `card.created`,
-`card.moved`, `card.note`. Field lists are in the README.
+`card.moved`, `card.note`, `metrics.recorded`, `metric.defined`, `metric.removed`, `report.created`, `report.updated`,
+`milestone.added`, `milestone.updated`, `milestone.deleted`. Field lists are in the README.
 
 ```text
 id: 42
@@ -220,6 +285,57 @@ data: {"version":42,"kinds":["projects"]}
 ```json
 { "items": [{ "id": "project.created:7", "type": "project.created", "at": "2026-01-05T10:00:00.000Z", "projectId": 7, "projectCode": "OPS-12", "projectName": "API migration" }] }
 ```
+
+## Progress
+
+Daily numbers, one Markdown report per day, and milestones. The Progress page
+shows them; [docs/progress-page.md](https://github.com/tsanford01/northstar/blob/main/docs/progress-page.md)
+explains its design. Dates are `YYYY-MM-DD`; metric keys are slugs such as `prs_merged`. Anyone
+signed in, and any token, can read. Writes take an admin session or a write token. Every write is
+idempotent: repeating it changes nothing and adds nothing to the activity feed.
+
+| Method | Path | Auth | Purpose |
+| --- | --- | --- | --- |
+| `GET` | `/api/progress/metrics` | token endpoint | Readings, sorted by key then date. `?keys=a,b`, `?from=`, `?to=` (inclusive). At most 10,000 rows, the newest. |
+| `PUT` | `/api/progress/metrics` | admin or write token | Record readings: `{ "date", "metrics": [{ "key", "value", "note"?, "rebuilt"? }] }` (1–1000). An entry may carry its own `date`. `value` is a number or `null` (no reading); `rebuilt: true` marks a value estimated from history. Each entry replaces the stored row for its date and key. Returns `{ created, updated, unchanged, metrics }`. |
+| `GET` | `/api/progress/metric-defs` | token endpoint | Metric definitions in `position` order. |
+| `PUT` | `/api/progress/metric-defs/:key` | admin or write token | Create (`201`) or update (`200`) a definition: `label`, `unit`, `direction` (`up_good`, `down_good`, `neutral`), `band` (`momentum`, `health`, `trust`), `question` (the line its tile answers), `startsWhen`, `hidden` (keeps recording, shows no tile), `position`, `description`. Fields left out keep their values. |
+| `DELETE` | `/api/progress/metric-defs/:key` | admin or write token | Remove a definition: `{ removed, key, readingsKept }`. Its readings stay, so defining the key again brings its history back. `404` when there is no definition. |
+| `GET` | `/api/progress/reports` | token endpoint | Report dates, newest first, with `title` (the first line) and `bullets`. `?from=`, `?to=`. |
+| `GET` | `/api/progress/reports/:date` | token endpoint | One report: `{ date, markdown, bullets }`. |
+| `PUT` | `/api/progress/reports/:date` | admin or write token | Create (`201`) or replace (`200`) a report: `{ "markdown", "bullets"?: [{ "text", "metric_key"? }] }`. Bullets left out keep the stored ones. |
+| `GET` | `/api/progress/milestones` | token endpoint | Milestones in date order. `?from=`, `?to=`, `?metricKey=`. |
+| `PUT` | `/api/progress/milestones` | admin or write token | Add a milestone: `{ "date", "label", "metricKey"? }`. A milestone is named by its date and label. |
+| `DELETE` | `/api/progress/milestones/:id` | admin or write token | Remove a milestone. |
+| `GET`, `PUT` | `/api/progress/settings` | read: token endpoint; write: admin or write token | `{ "needsYou": { "teamId", "columnId" } }`: the board column whose cards are waiting on the reader. Both `null` clears it. |
+| `GET` | `/api/progress/needs-you` | token endpoint | `{ configured, count, items }`: the count and first three cards of that column. |
+| `GET` | `/api/progress/export` | token endpoint | Every definition, reading, milestone and report in a stable order with sorted keys. |
+
+```json
+{ "date": "2026-11-03", "metrics": [{ "key": "prs_merged", "value": 9 }, { "key": "queue_open", "value": 37, "note": "Six items closed after planning" }] }
+```
+
+The full backup (`GET /api/backup`) includes the progress tables. Restoring a backup made before
+they existed leaves the current progress data in place.
+
+## Sequence
+
+The order work happens in, across every board. A sequencing pass (usually an agent, through MCP)
+ranks cards and records a run; the Sequence page shows the latest order;
+[docs/sequence-page.md](https://github.com/tsanford01/northstar/blob/main/docs/sequence-page.md)
+explains it. Only ranked, open cards are in the order: archived cards and cards in a column named
+Done drop out.
+
+| Method | Path | Auth | Purpose |
+| --- | --- | --- | --- |
+| `GET` | `/api/sequence` | token endpoint | The order: `rows` (place, card, owner, `now` step, reasons, `waiting`, `then` chain of cards it unblocks, `reaches`, `moved` since the previous run), `queue` (steps per person), `objectives`, `links` (ranked card → ranked card it unblocks), `fyi` (cards a run left unranked), the latest `run` and `designUrl`. `?mine=true` keeps the caller's own steps (by assignee = username). |
+| `POST` | `/api/sequence/runs` | board member of each card | Record a run: `{ "skillVersion", "scores"?: { "refuted"?, "coverage"?, "violations"?, "obsolete"? }, "items": [{ "id", "rank", "rankReason"?, "reasonFull"?, "waitUntil"?, "outcome"? }] }` (1–1000 items). Every card is updated in one transaction and the run is stored; any bad item fails the whole run. `rank: null` leaves a card out of the order. Returns `201 { run, changed }`. |
+| `GET`, `PUT` | `/api/sequence/settings` | read: token endpoint; write: admin or write token | `{ "designUrl" }`: a link to the page's design, shown in its footer. https only; empty removes it. Stored as the page setting `sequence.designUrl`. |
+
+"Moved" compares the latest run with the one before, among the cards both ranked, so a card
+moves only when the pass reordered it. Runs and page settings are in the full backup; restoring
+an older backup leaves them in place. Each run and each change to a ranked card sends a
+`sequence` change event.
 
 ## Planning rooms
 

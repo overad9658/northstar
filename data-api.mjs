@@ -22,8 +22,15 @@ function authorized(req, expectedToken, expectedHash = '') {
 export function apiTokenAccess(db, req, { apiToken = process.env.API_TOKEN } = {}) {
   const match = String(req.headers.authorization || '').match(/^Bearer (.+)$/i);
   if (!match) return null;
-  const settings = db.prepare('SELECT api_token_hash AS hash FROM portfolio_settings WHERE id = 1').get();
-  if (authorized(req, apiToken, settings?.hash)) return { name: 'API token', scope: 'write', createdBy: null };
+  const settings = db.prepare(`
+    SELECT s.api_token_hash AS hash, s.api_token_created_by AS createdById, u.username AS createdByName
+    FROM portfolio_settings s LEFT JOIN users u ON u.id = s.api_token_created_by WHERE s.id = 1
+  `).get();
+  // The generated token acts for the admin who generated it; the API_TOKEN environment token belongs to nobody.
+  if (authorized(req, apiToken, settings?.hash)) {
+    const createdBy = settings?.hash && settings.createdById && settings.createdByName ? { id: settings.createdById, username: settings.createdByName } : null;
+    return { name: 'API token', scope: 'write', createdBy };
+  }
   const row = db.prepare(`
     SELECT t.id, t.name, t.scope, t.created_by AS createdById, u.username AS createdByName
     FROM api_tokens t LEFT JOIN users u ON u.id = t.created_by
@@ -88,7 +95,9 @@ export function createDataApi(db, projects, { apiToken = process.env.API_TOKEN }
       if (req.method === 'POST') {
         const token = `northstar_${randomBytes(32).toString('base64url')}`;
         const createdAt = new Date().toISOString();
-        db.prepare('UPDATE portfolio_settings SET api_token_hash = ?, api_token_created_at = ? WHERE id = 1').run(tokenHash(token).toString('hex'), createdAt);
+        // Development mode's built-in user has no users row, so its token has no recorded creator.
+        const creator = user.id > 0 && db.prepare('SELECT 1 FROM users WHERE id = ?').get(user.id) ? user.id : null;
+        db.prepare('UPDATE portfolio_settings SET api_token_hash = ?, api_token_created_at = ?, api_token_created_by = ? WHERE id = 1').run(tokenHash(token).toString('hex'), createdAt, creator);
         res.writeHead(201, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
         res.end(JSON.stringify({ token, createdAt }));
         return true;

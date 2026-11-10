@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 
-export const EVENT_KINDS = Object.freeze(['projects', 'kanban', 'teams']);
+export const EVENT_KINDS = Object.freeze(['projects', 'kanban', 'teams', 'sequence']);
 const HEARTBEAT_MS = 25_000;
 
 // Change notifications for open pages. Events say only which kinds changed, never what, and each
@@ -8,11 +8,17 @@ const HEARTBEAT_MS = 25_000;
 // project produces no event and no version bump for read-only viewers.
 // The emitter is in-process, so it covers one server; several servers on one PostgreSQL database
 // would need LISTEN/NOTIFY to share it.
-export function createEventsService({ projects, kanban, teams }) {
+export function createEventsService({ projects, kanban, teams, sequence }) {
   const snapshots = {
     projects: (includeHidden) => projects.list({ includeHidden }),
     kanban: (includeHidden) => kanban.list({ includeHidden }),
     teams: (includeHidden) => teams.list({ includeHidden }),
+    // The sequence changes with a new run, or a ranked card's rank, reasons, blockers, owner, step or column.
+    sequence: (includeHidden) => ({
+      run: sequence ? sequence.latestRuns()[0]?.id ?? null : null,
+      cards: kanban.list({ includeHidden, archived: 'include' }).cards.filter((card) => card.rank !== null)
+        .map((card) => [card.id, card.rank, card.rankReason, card.reasonFull, card.waitUntil, card.outcome, card.blockedBy, card.assignee, card.nextStep, card.title, card.columnId, card.archived, card.objective]),
+    }),
   };
   const fingerprint = (kind, includeHidden) => createHash('sha256').update(JSON.stringify(snapshots[kind](includeHidden))).digest('hex');
   // Versions start at the boot time so they keep increasing across restarts.
