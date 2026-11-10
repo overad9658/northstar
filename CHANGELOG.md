@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.4.0](https://github.com/overad9658/northstar/compare/v1.3.0...v1.4.0) (2026-11-10)
+
+
+### Features
+
+* add progress and sequence views ([3a0e08b](https://github.com/overad9658/northstar/commit/3a0e08b0998caeb31161c14edfef2ab8b235dc63))
+* add progress and sequence views, board updates, and Docker context filter ([4b0b1bf](https://github.com/overad9658/northstar/commit/4b0b1bfd3a683bfeac622cf8ac0eeee2aeec643e))
+
 ## [1.3.0](https://github.com/overad9658/northstar/compare/v1.2.1...v1.3.0) (2026-11-08)
 
 
