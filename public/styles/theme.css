@@ -21,6 +21,16 @@
 .app-menu-item[aria-current="page"] { background:var(--green-2); }
 .app-menu-item:hover,.app-menu-item:focus-visible { background:#f0f4f2; outline:0; }
 .app-menu-item>span { grid-row:1/3; color:var(--green); font-size:17px; text-align:center; }
+.app-menu-item>span>svg {
+  width:17px;
+  height:17px;
+  vertical-align:middle;
+  fill:none;
+  stroke:currentColor;
+  stroke-width:1.5;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+}
 .app-menu-item strong { font-size:11px; }
 .app-menu-item small { color:var(--muted); font-size:9px; }
 .app-menu-item.primary { color:#fff; background:var(--green); }
@@ -90,4 +100,20 @@
   .theme-toggle { width:42px; height:42px; }
   .app-menu>summary { width:42px; height:42px; }
   .topbar-actions { gap:7px; }
+}
+
+@media (max-width:620px), (max-height:500px) and (pointer:coarse) {
+  .app-shell { padding-top:env(safe-area-inset-top); }
+  /* Clip horizontal overflow without making the shell the sticky header's scroll container. */
+  :is(.app-shell,.room-shell):has(.app-menu[open]) { overflow-x:clip; }
+  :is(.topbar,.room-topbar,.auth-topbar):has(.app-menu[open]) {
+    position:sticky;
+    top:env(safe-area-inset-top);
+    z-index:40;
+    background:var(--paper);
+  }
+  .app-menu-panel {
+    max-height:calc(100dvh - 96px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+    overscroll-behavior-y:contain;
+  }
 }

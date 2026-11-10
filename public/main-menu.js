@@ -31,11 +31,11 @@ if (header && actions && !header.querySelector('.app-menu')) {
         + item('/sso.html', '⌘', 'Single sign-on', 'Configure SAML and OIDC')
         + item('/tokens.html', '⚿', 'API tokens', 'Named read and write tokens')
         + item('/?menu=api-access', '⌁', 'API access', 'Generate a bearer token')
-        + item('/?menu=data', '↕', 'Data &amp; exports', 'Backup or restore')
+        + item('/?menu=data', '<svg viewBox="0 0 16 16"><path d="M5 13V3m-3 3 3-3 3 3m3-3v10m-3-3 3 3 3-3"/></svg>', 'Data &amp; exports', 'Backup or restore')
         + item('/?menu=planning', '◇', 'Planning room', 'Score projects together') : '')
       + (user.role === 'admin' || (user.role === 'team_manager' && user.teamIds?.length)
         ? item('/?menu=add-project', '+', 'Add project', 'Create new work') : '')
-      + '<button class="app-menu-item" id="menu-sign-out" type="button"><span aria-hidden="true">↪</span><strong>Sign out</strong><small>End this session</small></button>';
+      + '<button class="app-menu-item" id="menu-sign-out" type="button"><span aria-hidden="true"><svg viewBox="0 0 16 16"><path d="M7 2H2v12h5m-1-6h8m-3-3 3 3-3 3"/></svg></span><strong>Sign out</strong><small>End this session</small></button>';
     panel.querySelector('#menu-sign-out').addEventListener('click', async () => {
       const result = await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
       if (result.ok) location.replace('/login.html');
