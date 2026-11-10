@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.2](https://github.com/overad9658/northstar/compare/v1.4.1...v1.4.2) (2026-11-10)
+
+
+### Bug Fixes
+
+* structured page width ([fe03bc8](https://github.com/overad9658/northstar/commit/fe03bc8190285997d33b189274001449b31d7266))
+
 ## [1.4.1](https://github.com/overad9658/northstar/compare/v1.4.0...v1.4.1) (2026-11-10)
 
 
