@@ -13,8 +13,13 @@ export function freePort() {
   });
 }
 
-export async function startServer(dataDir, port, env = {}) {
-  const child = spawn(process.execPath, ['server.mjs'], {
+// A busy machine running many test files at once can take several seconds to start a server, so the
+// wait is generous. A server that does not start in time is killed: a live child process would keep
+// the test file from ever exiting, and the whole run would hang instead of failing.
+export const START_TIMEOUT_MS = Number(process.env.TEST_SERVER_START_MS) || 20_000;
+
+export async function startServer(dataDir, port, env = {}, { timeoutMs = START_TIMEOUT_MS, script = 'server.mjs' } = {}) {
+  const child = spawn(process.execPath, [script], {
     env: { ...process.env, AUTH_DISABLED: 'true', ...env, DATA_DIR: dataDir, PORT: String(port) },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -22,7 +27,10 @@ export async function startServer(dataDir, port, env = {}) {
   let stderr = '';
   child.stderr.on('data', (chunk) => { stderr += chunk; });
   await new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error(`Server did not start.${stderr ? `\n${stderr.trim()}` : ''}`)), 5000);
+    const timeout = setTimeout(() => {
+      child.kill('SIGKILL');
+      reject(Object.assign(new Error(`Server did not start within ${timeoutMs} ms.${stderr ? `\n${stderr.trim()}` : ''}`), { child }));
+    }, timeoutMs);
     child.stdout.on('data', (chunk) => {
       stdout += chunk;
       if (stdout.includes('Northstar is ready')) {

@@ -23,6 +23,7 @@
     "server.mjs",
     "client.mjs",
     "tools.mjs",
+    "board.mjs",
     "README.md"
   ]
 }

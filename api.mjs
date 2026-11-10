@@ -1,4 +1,5 @@
 import { AuthError, createAuthService } from './auth-service.mjs';
+import { applyFilters, DEFAULT_SORT, hasTableParams, paramsToState, sortProjects } from './public/shared/project-table.js';
 import { apiTokenAccess, createDataApi } from './data-api.mjs';
 import { json, readJson } from './http-utils.mjs';
 import { createPlanningService, PlanningError } from './planning-service.mjs';
@@ -7,6 +8,10 @@ import { createTeamService } from './team-service.mjs';
 import { createSsoService } from './sso-service.mjs';
 import { createSsoSettings } from './sso-settings.mjs';
 import { createKanbanService, KanbanError } from './kanban-service.mjs';
+import { ALL_BOARDS } from './public/shared/kanban-boards.js';
+import { createViewsService, ViewError } from './views-service.mjs';
+import { createProgressService, ProgressError } from './progress-service.mjs';
+import { buildSequence, createSequenceService } from './sequence-service.mjs';
 import { ActivityError, createActivityService } from './activity-service.mjs';
 import { createEventsService } from './events-service.mjs';
 import { createFailureLimiter, positiveInteger } from './rate-limit.mjs';
@@ -22,7 +27,7 @@ const DOCS = Object.freeze({
 
 // Lookup filters from the query string; absent parameters are left out.
 // Requests that never change projects, the board or teams; every other committed write is published.
-const UNPUBLISHED_PATHS = ['/api/auth/', '/api/users', '/api/admin/', '/api/api-token', '/api/events', '/api/todos'];
+const UNPUBLISHED_PATHS = ['/api/auth/', '/api/users', '/api/admin/', '/api/api-token', '/api/events', '/api/todos', '/api/progress'];
 const isPublishedWrite = (req, res, url) => !['GET', 'HEAD', 'OPTIONS'].includes(req.method) && res.statusCode < 300
   && !UNPUBLISHED_PATHS.some((path) => url.pathname.startsWith(path));
 
@@ -42,10 +47,13 @@ export function createApi(db, { apiToken = process.env.API_TOKEN, tokenFailuresP
   const projects = createProjectService(db);
   const teams = createTeamService(db);
   const kanban = createKanbanService(db);
+  const views = createViewsService(db);
+  const progress = createProgressService(db);
+  const sequence = createSequenceService(db, kanban);
   const todos = createTodoService(db);
   const okrs = createOkrService(db);
   const activity = createActivityService(db);
-  const events = createEventsService({ projects, kanban, teams });
+  const events = createEventsService({ projects, kanban, teams, sequence });
   const dataApi = createDataApi(db, projects, { apiToken });
   const requireUser = (req) => { const user = auth.userForRequest(req); if (!user) throw new AuthError(401, 'Authentication is required.'); return user; };
   const requireAdmin = (req) => { const user = requireUser(req); if (user.role !== 'admin') throw new AuthError(403, 'Admin access is required.'); return user; };
@@ -177,9 +185,12 @@ export function createApi(db, { apiToken = process.env.API_TOKEN, tokenFailuresP
       }
 
       const sessionUser = auth.userForRequest(req);
-      const projectsPath = /^\/api\/projects(?:\/(?:\d+(?:\/moves)?|upsert))?$/.test(url.pathname);
+      const projectsPath = /^\/api\/projects(?:\/(?:\d+(?:\/moves|\/promote)?|upsert))?$/.test(url.pathname);
       const teamsPath = /^\/api\/(?:teams(?:\/\d+)?|capacity)$/.test(url.pathname);
-      const tokenPath = kanbanPath || projectsPath || teamsPath || ['/api/activity', '/api/events', '/api/version'].includes(url.pathname);
+      const viewsPath = /^\/api\/views(?:\/\d+)?$/.test(url.pathname);
+      const progressPath = url.pathname === '/api/progress' || url.pathname.startsWith('/api/progress/');
+      const sequencePath = ['/api/sequence', '/api/sequence/runs', '/api/sequence/settings'].includes(url.pathname);
+      const tokenPath = kanbanPath || projectsPath || teamsPath || viewsPath || progressPath || sequencePath || ['/api/activity', '/api/events', '/api/version'].includes(url.pathname);
       const tokenAccess = tokenPath ? bearerAccess : null;
       if (tokenAccess?.scope === 'read' && req.method !== 'GET') throw new AuthError(403, 'This API token is read-only.');
       // Tokens belong to no team: a write token acts as an admin, a read token as a read-only viewer.
@@ -211,8 +222,80 @@ export function createApi(db, { apiToken = process.env.API_TOKEN, tokenFailuresP
         if (req.method === 'DELETE' && linkType && linkedId) { okrs.unlink(first, resultId, linkType, linkedId, user); res.writeHead(204); res.end(); return true; }
         return json(res, 405, { error: 'Method not allowed.' }), true;
       }
+      if (progressPath) {
+        res.setHeader('cache-control', 'no-store');
+        // Anyone signed in (or any token) reads progress; writes take an admin or a write token.
+        const write = () => { requireUserAdmin(); return { actor: user.username }; };
+        const range = () => ({ from: url.searchParams.get('from') ?? undefined, to: url.searchParams.get('to') ?? undefined });
+        const path = url.pathname.slice('/api/progress'.length);
+        const reportMatch = path.match(/^\/reports\/([^/]+)$/);
+        const defMatch = path.match(/^\/metric-defs\/([^/]+)$/);
+        const milestoneMatch = path.match(/^\/milestones\/(\d+)$/);
+        if (path === '/metrics') {
+          if (req.method === 'GET') return json(res, 200, progress.listMetrics({ ...range(), keys: url.searchParams.get('keys') ?? undefined })), true;
+          if (req.method === 'PUT') { const options = write(); return json(res, 200, progress.recordMetrics(await readJson(req, 500_000), options)), true; }
+        } else if (path === '/metric-defs') {
+          if (req.method === 'GET') return json(res, 200, progress.listDefs()), true;
+        } else if (defMatch) {
+          if (req.method === 'DELETE') { const options = write(); return json(res, 200, progress.removeMetric(decodeURIComponent(defMatch[1]), options)), true; }
+          if (req.method === 'PUT') {
+            const options = write();
+            const result = progress.defineMetric(decodeURIComponent(defMatch[1]), await readJson(req), options);
+            return json(res, result.created ? 201 : 200, result), true;
+          }
+        } else if (path === '/reports') {
+          if (req.method === 'GET') return json(res, 200, progress.listReports(range())), true;
+        } else if (reportMatch) {
+          const date = decodeURIComponent(reportMatch[1]);
+          if (req.method === 'GET') return json(res, 200, progress.getReport(date)), true;
+          if (req.method === 'PUT') {
+            const options = write();
+            const result = progress.upsertReport(date, await readJson(req, 500_000), options);
+            return json(res, result.created ? 201 : 200, result), true;
+          }
+        } else if (path === '/milestones') {
+          if (req.method === 'GET') return json(res, 200, progress.listMilestones({ ...range(), metricKey: url.searchParams.get('metricKey') || undefined })), true;
+          if (req.method === 'PUT') {
+            const options = write();
+            const result = progress.addMilestone(await readJson(req), options);
+            return json(res, result.created ? 201 : 200, result), true;
+          }
+        } else if (milestoneMatch) {
+          if (req.method === 'DELETE') { const options = write(); progress.deleteMilestone(Number(milestoneMatch[1]), options); res.writeHead(204); res.end(); return true; }
+        } else if (path === '/settings') {
+          if (req.method === 'GET') return json(res, 200, progress.settings()), true;
+          if (req.method === 'PUT') { write(); return json(res, 200, progress.saveSettings(await readJson(req))), true; }
+        } else if (path === '/needs-you') {
+          // The count and first three cards of the board column chosen in the settings, in board order.
+          if (req.method === 'GET') {
+            const { teamId, columnId } = progress.settings().needsYou;
+            const column = columnId ? db.prepare('SELECT k.name AS columnName, t.name AS teamName FROM kanban_columns k JOIN teams t ON t.id = k.team_id WHERE k.id = ?').get(columnId) : null;
+            if (!column) return json(res, 200, { configured: false, count: 0, items: [] }), true;
+            const cards = kanban.list({ includeHidden: user.role === 'admin' || canManageTeam(user, teamId), teamId }).cards.filter((card) => card.columnId === columnId);
+            const items = cards.slice(0, 3).map(({ id, title, assignee, externalUrl, nextStep }) => ({ id, title, assignee, externalUrl, nextStep }));
+            return json(res, 200, { configured: true, teamId, columnId, ...column, count: cards.length, items }), true;
+          }
+        } else if (path === '/export') {
+          if (req.method === 'GET') return json(res, 200, progress.export()), true;
+        } else return json(res, 404, { error: 'Not found.' }), true;
+        return json(res, 405, { error: 'Method not allowed.' }), true;
+      }
+      if (viewsPath) {
+        // A view belongs to a person: the signed-in user, or the user who created the API token.
+        const ownerId = tokenAccess ? tokenAccess.createdBy?.id : user.id;
+        if (!ownerId) throw new ViewError(400, 'Saved views need a user: use a session or an API token created by a user.');
+        const viewId = Number(url.pathname.split('/')[3]) || null;
+        if (req.method === 'GET' && !viewId) return json(res, 200, views.list(ownerId)), true;
+        if (req.method === 'GET' && viewId) return json(res, 200, views.get(ownerId, viewId)), true;
+        if (req.method === 'POST' && !viewId) return json(res, 201, views.create(ownerId, await readJson(req))), true;
+        if (req.method === 'PUT' && viewId) return json(res, 200, views.update(ownerId, viewId, await readJson(req))), true;
+        if (req.method === 'DELETE' && viewId) { views.delete(ownerId, viewId); res.writeHead(204); res.end(); return true; }
+        return json(res, 405, { error: 'Method not allowed.' }), true;
+      }
+      // ?teamId=all reads every board at once; card calls then use each card's own team.
       // Kanban boards belong to teams. A request names its board with ?teamId; without it, list and
       // column calls use the first team's board, and card calls use the card's own team.
+      const allBoards = url.searchParams.get('teamId') === ALL_BOARDS;
       const requestedTeamId = Number(url.searchParams.get('teamId')) || null;
       const boardTeamId = requestedTeamId || db.prepare('SELECT id FROM teams ORDER BY id LIMIT 1').get()?.id;
       if (kanbanPath && !db.prepare('SELECT 1 FROM teams WHERE id = ?').get(boardTeamId)) throw new KanbanError(404, 'Team board not found.');
@@ -241,8 +324,37 @@ export function createApi(db, { apiToken = process.env.API_TOKEN, tokenFailuresP
         const query = { since: url.searchParams.get('since') ?? undefined, limit: url.searchParams.get('limit') ?? undefined };
         return json(res, 200, activity.list(query, { includeHidden: user.role === 'admin' })), true;
       }
+      // The sequence reads every board the viewer can see; a run writes cards as a card update would.
+      if (url.pathname === '/api/sequence') {
+        if (req.method !== 'GET') return json(res, 405, { error: 'Method not allowed.' }), true;
+        res.setHeader('cache-control', 'no-store');
+        const visibleTeams = teams.list({ includeHidden: user.role === 'admin' }).map(({ id, name }) => ({ id, name, includeHidden: canSeeHiddenOn(id) }));
+        const board = kanban.listAll({ teams: visibleTeams, archived: 'include' });
+        const columnNames = new Map(board.columns.map((column) => [column.key, column.name]));
+        const cards = board.cards.map((card) => ({ ...card, columnName: columnNames.get(card.columnKey) ?? '' }));
+        const [latest = null, previous = null] = sequence.latestRuns();
+        const mine = ['1', 'true'].includes(url.searchParams.get('mine') ?? '');
+        return json(res, 200, { ...buildSequence({ cards, latest, previous, viewer: user.username, mine }), designUrl: sequence.settings().designUrl }), true;
+      }
+      if (url.pathname === '/api/sequence/settings') {
+        res.setHeader('cache-control', 'no-store');
+        if (req.method === 'GET') return json(res, 200, sequence.settings()), true;
+        if (req.method === 'PUT') { requireUserAdmin(); return json(res, 200, sequence.saveSettings(await readJson(req))), true; }
+        return json(res, 405, { error: 'Method not allowed.' }), true;
+      }
+      if (url.pathname === '/api/sequence/runs') {
+        if (req.method !== 'POST') return json(res, 405, { error: 'Method not allowed.' }), true;
+        const input = await readJson(req, 500_000);
+        const result = sequence.recordRun(input, { canEdit: (card) => { requireBoardMember(user, card.teamId); requireVisibleCard(card.id, card.teamId); } });
+        return json(res, 201, result), true;
+      }
       if (url.pathname === '/api/kanban') {
-        if (req.method === 'GET') return json(res, 200, kanban.list({ includeHidden: canSeeHiddenOn(boardTeamId), teamId: boardTeamId, archived: url.searchParams.get('archived') ?? undefined })), true;
+        const archived = url.searchParams.get('archived') ?? undefined;
+        if (req.method === 'GET' && allBoards) {
+          const visibleTeams = teams.list({ includeHidden: user.role === 'admin' }).map(({ id, name }) => ({ id, name, includeHidden: canSeeHiddenOn(id) }));
+          return json(res, 200, kanban.listAll({ teams: visibleTeams, archived })), true;
+        }
+        if (req.method === 'GET') return json(res, 200, kanban.list({ includeHidden: canSeeHiddenOn(boardTeamId), teamId: boardTeamId, archived })), true;
         return json(res, 405, { error: 'Method not allowed.' }), true;
       }
       if (url.pathname === '/api/kanban/report') {
@@ -250,7 +362,13 @@ export function createApi(db, { apiToken = process.env.API_TOKEN, tokenFailuresP
         return json(res, 405, { error: 'Method not allowed.' }), true;
       }
       if (url.pathname === '/api/kanban/projects') {
-        if (req.method === 'GET') { const teamName = db.prepare('SELECT name FROM teams WHERE id = ?').get(boardTeamId).name; return json(res, 200, projects.list({ includeHidden: user.role === 'admin' || canManageTeam(user, boardTeamId) }).filter((p) => p.team.toLocaleLowerCase() === teamName.toLocaleLowerCase()).map(({ id, projectId, name, status, archived }) => ({ id, projectId, name, status, archived }))), true; }
+        if (req.method === 'GET' && allBoards) {
+          const names = new Map(teams.list().map((team) => [team.name.toLocaleLowerCase(), team.id]));
+          return json(res, 200, projects.list({ includeHidden: true })
+            .filter((p) => names.has(p.team.toLocaleLowerCase()) && (!p.hiddenFromReadOnly || canSeeHiddenOn(names.get(p.team.toLocaleLowerCase()))))
+            .map(({ id, projectId, name, status, archived, team }) => ({ id, projectId, name, status, archived, team }))), true;
+        }
+        if (req.method === 'GET') { const teamName = db.prepare('SELECT name FROM teams WHERE id = ?').get(boardTeamId).name; return json(res, 200, projects.list({ includeHidden: user.role === 'admin' || canManageTeam(user, boardTeamId) }).filter((p) => p.team.toLocaleLowerCase() === teamName.toLocaleLowerCase()).map(({ id, projectId, name, status, archived, team }) => ({ id, projectId, name, status, archived, team }))), true; }
         return json(res, 405, { error: 'Method not allowed.' }), true;
       }
       const columnMatch = url.pathname.match(/^\/api\/kanban\/columns(?:\/(\d+))?$/);
@@ -286,10 +404,17 @@ export function createApi(db, { apiToken = process.env.API_TOKEN, tokenFailuresP
         const result = kanban.upsertCard(await readJson(req), { key: url.searchParams.get('key') ?? 'externalUrl', actor: user.username });
         return json(res, result.created ? 201 : 200, result), true;
       }
+      if (url.pathname === '/api/kanban/cards/ranks') {
+        if (req.method !== 'PUT') return json(res, 405, { error: 'Method not allowed.' }), true;
+        const input = await readJson(req);
+        // Each card is checked as a single-card update would be: board member of its team, card visible.
+        const ranks = kanban.setRanks(input?.ranks, { canEdit: (item) => { requireBoardMember(user, item.teamId); requireVisibleCard(item.id, item.teamId); } });
+        return json(res, 200, { ranks }), true;
+      }
       if (cardMatch) {
         const id = cardMatch[1] ? Number(cardMatch[1]) : null;
         if (req.method === 'GET' && id) { const teamId = teamForCard(id); return json(res, 200, kanban.getCard(id, { includeHidden: canSeeHiddenOn(teamId), teamId })), true; }
-        if (req.method === 'GET') return json(res, 200, kanban.findCards({ ...lookupParams(url, ['key', 'externalUrl', 'projectId', 'decision', 'tag', 'source', 'archived']), includeHidden: user.role === 'admin' })), true;
+        if (req.method === 'GET') return json(res, 200, kanban.findCards({ ...lookupParams(url, ['key', 'externalUrl', 'projectId', 'decision', 'tag', 'source', 'archived', 'sort']), includeHidden: user.role === 'admin' })), true;
         if (req.method === 'POST' && !id) {
           const input = await readJson(req);
           const teamId = teamForColumn(input?.columnId);
@@ -373,10 +498,25 @@ export function createApi(db, { apiToken = process.env.API_TOKEN, tokenFailuresP
         return json(res, result.created ? 201 : 200, result), true;
       }
 
+      const promoteMatch = url.pathname.match(/^\/api\/projects\/(\d+)\/promote$/);
+      if (promoteMatch) {
+        if (req.method !== 'POST') return json(res, 405, { error: 'Method not allowed.' }), true;
+        const promoteId = Number(promoteMatch[1]);
+        const current = db.prepare('SELECT team FROM projects WHERE id = ?').get(promoteId);
+        if (!current) throw new ProjectError(404, 'Project not found.');
+        if (user.role !== 'admin') requireTeamManager(user, teamIdForName(current.team));
+        return json(res, 200, projects.promote(promoteId, { actor: user.username })), true;
+      }
       const match = url.pathname.match(/^\/api\/projects(?:\/(\d+))?$/);
       if (!match) return false;
       const id = match[1] ? Number(match[1]) : null;
-      if (req.method === 'GET' && !id) return json(res, 200, projects.list({ ...lookupParams(url, ['projectId', 'externalUrl']), includeHidden: true }).filter((project) => user.role === 'admin' || !project.hiddenFromReadOnly || canManageTeam(user, teamIdForName(project.team)))), true;
+      if (req.method === 'GET' && !id) {
+        const visible = projects.list({ ...lookupParams(url, ['projectId', 'externalUrl']), includeHidden: true }).filter((project) => user.role === 'admin' || !project.hiddenFromReadOnly || canManageTeam(user, teamIdForName(project.team)));
+        if (!hasTableParams(url.searchParams)) return json(res, 200, visible), true;
+        // The projects table's own sort and filter parameters (public/shared/project-table.js).
+        const table = paramsToState(url.searchParams);
+        return json(res, 200, sortProjects(applyFilters(visible, table.filters, table.query), table.sort.length ? table.sort : DEFAULT_SORT)), true;
+      }
       if (req.method === 'POST' && !id) {
         if (user.role === 'read_only') throw new AuthError(403, 'Team manager access is required.');
         const input = await readJson(req);
@@ -401,7 +541,7 @@ export function createApi(db, { apiToken = process.env.API_TOKEN, tokenFailuresP
       }
       return json(res, 405, { error: 'Method not allowed.' }), true;
     } catch (error) {
-      const status = error instanceof PlanningError || error instanceof ProjectError || error instanceof AuthError || error instanceof KanbanError || error instanceof ActivityError || error instanceof OkrError ? error.status : 400;
+      const status = error instanceof PlanningError || error instanceof ProjectError || error instanceof AuthError || error instanceof KanbanError || error instanceof ActivityError || error instanceof OkrError || error instanceof ViewError || error instanceof ProgressError ? error.status : 400;
       const details = error instanceof PlanningError ? error.data : {};
       json(res, status, { error: error instanceof Error ? error.message : 'Request failed.', ...details });
       return true;

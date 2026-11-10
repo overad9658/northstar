@@ -1,5 +1,5 @@
 import { initials } from './browser-utils.js';
-import { isFocusProject } from './shared/project-rules.js';
+import { isFocusProject, isIdea } from './shared/project-rules.js';
 
 export function projectLabel(project) {
   return project.projectId?.trim() || initials(project.name);
@@ -32,9 +32,18 @@ export function selectPortfolioProjects(projects, filters) {
     visible,
     portfolio,
     selectedPortfolio,
-    matrix: visible.filter((project) => !project.archived && (filters.showCompleted || project.status !== 'Complete')),
+    matrix: visible.filter((project) => !project.archived && (filters.showCompleted || project.status !== 'Complete') && (filters.showIdeas || !isIdea(project))),
     active: selectedPortfolio.filter((project) => project.status === 'Active'),
   };
+}
+
+// Selected teams that have no projects yet but do have kanban cards, so an empty view can point
+// to their boards instead of looking like there is nothing there.
+export function emptyTeamBoards(selectedPortfolio, teams, selectedTeams) {
+  if (!selectedTeams.length || selectedPortfolio.length) return [];
+  return teams
+    .filter((team) => selectedTeams.includes(team.name) && Number(team.boardCardCount) > 0)
+    .map((team) => ({ id: team.id, name: team.name, cardCount: Number(team.boardCardCount) }));
 }
 
 export function findFocusNowOccupant(projects, project, impact, urgency) {

@@ -1,0 +1,116 @@
+/* Sequence page. One accent colour means "you"; everything else stays neutral.
+   docs/sequence-page.md explains the layout and the reading order. */
+:root {
+  --seq-row:#fff; --seq-row-line:#e3e1dc; --seq-step-line:#c9c6bf; --seq-wait-bg:#f1efea; --seq-wait-line:#9a968e;
+  --seq-you:#b4500f; --seq-you-bg:#fff6ef; --seq-you-line:#e8d3c4; --seq-up:#3e7d5a; --seq-bracket:#c9c6bf;
+  --seq-mark-0:#8a2e3b; --seq-mark-1:#3a5ba0; --seq-mark-2:#7fb7ae; --seq-mark-3:#a07a2c; --seq-mark-4:#6b5ba0; --seq-mark-5:#9a968e;
+}
+[data-theme="dark"] {
+  --seq-row:#18211e; --seq-row-line:#2e3a36; --seq-step-line:#465450; --seq-wait-bg:#141c19; --seq-wait-line:#6c7975;
+  --seq-you:#f0a46b; --seq-you-bg:#33231a; --seq-you-line:#5a3b28; --seq-up:#8fd1ad; --seq-bracket:#4f5d58;
+  --seq-mark-0:#e08a97; --seq-mark-1:#8fa9e6; --seq-mark-2:#7fc4b9; --seq-mark-3:#d9b26a; --seq-mark-4:#b0a3e3; --seq-mark-5:#9aa6a1;
+}
+
+.seq { max-width:1240px; margin:32px auto 0; display:flex; flex-direction:column; gap:20px; }
+.seq :focus-visible { outline:2px solid var(--seq-you); outline-offset:2px; }
+.seq a { color:inherit; text-decoration:none; }
+.seq a:hover { color:var(--seq-you); }
+
+/* Top: the label, who holds the queue, Mine, and when the last pass ran. */
+.seq-head { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:16px; }
+.seq-title { margin:0; font-family:inherit; font-size:13px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); }
+.seq-tools { display:flex; flex-wrap:wrap; align-items:center; gap:20px; font-size:13px; color:var(--muted); }
+.seq-queue { display:flex; flex-wrap:wrap; align-items:center; gap:20px; }
+.seq-person { display:flex; align-items:center; gap:8px; }
+.seq-person-name { font-weight:600; color:var(--ink); }
+.seq-bars { display:flex; gap:2px; }
+.seq-bars i { width:6px; height:14px; border-radius:2px; background:var(--muted); }
+.seq-person.is-mine .seq-person-name { color:var(--seq-you); }
+.seq-person.is-mine .seq-bars i { background:var(--seq-you); }
+.seq-mine { min-height:44px; padding:0 16px; border-radius:999px; border:1px solid var(--seq-you-line); color:var(--seq-you); background:var(--seq-row); font-weight:600; font-size:14px; }
+.seq-mine[aria-pressed="true"] { color:var(--seq-row); background:var(--seq-you); border-color:var(--seq-you); }
+.seq-mine[hidden] { display:none; }
+.seq-run { font-family:ui-monospace,"JetBrains Mono",SFMono-Regular,Menlo,monospace; font-variant-numeric:tabular-nums; }
+
+/* The rows: a fixed height so the brackets in the gutter line up. */
+.seq-scroll { overflow-x:auto; }
+.seq-board { position:relative; min-width:1008px; padding-left:28px; display:flex; flex-direction:column; gap:8px; }
+.seq-board[hidden] { display:none; }
+.seq-columns,.seq-row { display:grid; grid-template-columns:220px 380px minmax(0,1fr) 240px; gap:20px; padding:0 20px; }
+.seq-columns { height:16px; font-size:12px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); }
+.seq-rows { margin:0; padding:0; list-style:none; display:flex; flex-direction:column; gap:8px; }
+.seq-row { position:relative; height:72px; align-items:center; background:var(--seq-row); border:1px solid var(--seq-row-line); border-radius:12px; }
+/* A quiet line from the Now box through Then to Reaches; text sits on a patch so the line passes under it. */
+.seq-row.has-line::before { content:""; position:absolute; left:640px; right:260px; top:35px; height:1px; background:var(--seq-row-line); }
+.seq-row.has-line.no-reach::before { right:280px; }
+.seq-patch { position:relative; background:var(--seq-row); padding:0 8px; }
+.seq-row.is-waiting { opacity:.6; }
+
+.seq-why { display:flex; align-items:center; gap:14px; min-width:0; }
+.seq-place { flex:none; width:30px; font-family:ui-monospace,"JetBrains Mono",SFMono-Regular,Menlo,monospace; font-size:20px; font-weight:600; font-variant-numeric:tabular-nums; }
+.seq-why-text { display:flex; flex-direction:column; gap:2px; min-width:0; }
+.seq-reason { display:flex; align-items:center; gap:8px; min-width:0; }
+.seq-reason-text { font-size:13px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.seq-mark { flex:none; width:10px; height:10px; border-radius:2px; background:var(--seq-mark-5); }
+.seq-mark.mark-0 { background:var(--seq-mark-0); } .seq-mark.mark-1 { background:var(--seq-mark-1); } .seq-mark.mark-2 { background:var(--seq-mark-2); }
+.seq-mark.mark-3 { background:var(--seq-mark-3); } .seq-mark.mark-4 { background:var(--seq-mark-4); }
+.seq-move { padding-left:18px; font-family:ui-monospace,"JetBrains Mono",SFMono-Regular,Menlo,monospace; font-size:12px; color:var(--muted); }
+.seq-move.up { color:var(--seq-up); }
+
+.seq-now { position:relative; display:flex; align-items:center; gap:10px; min-width:0; min-height:48px; padding:10px 16px; border-radius:10px; background:var(--seq-row); border:1px solid var(--seq-step-line); }
+.seq-row.is-mine .seq-now { background:var(--seq-you-bg); border:2px solid var(--seq-you); }
+.seq-row.is-waiting .seq-now { background:var(--seq-wait-bg); border:1px dashed var(--seq-wait-line); color:var(--muted); }
+.seq-owner { flex:none; font-size:14px; font-weight:700; }
+.seq-row.is-mine .seq-owner { color:var(--seq-you); }
+.seq-step { font-size:15px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+.seq-then { position:relative; min-width:0; font-size:14px; line-height:20px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.seq-then a:hover { text-decoration:underline; }
+.seq-reaches { position:relative; display:flex; align-items:center; min-width:0; font-size:14px; font-weight:500; }
+.seq-reaches .seq-patch { display:flex; align-items:center; gap:8px; min-width:0; }
+.seq-reaches .seq-patch > span:last-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.seq-target { flex:none; }
+.seq-target circle:first-child { stroke:var(--ink); }
+.seq-target circle:last-child { fill:var(--ink); }
+
+/* Brackets in the gutter: a row joined to the row it unblocks. */
+.seq-links { position:absolute; left:0; top:0; overflow:visible; }
+.seq-link-line { fill:none; stroke:var(--seq-bracket); stroke-width:1.5; stroke-linecap:round; stroke-linejoin:round; }
+.seq-link-head { fill:var(--seq-bracket); }
+.seq-link-hit { fill:none; stroke:transparent; stroke-width:10; pointer-events:stroke; }
+.seq-link:hover .seq-link-line { stroke:var(--muted); }
+.seq-link:hover .seq-link-head { fill:var(--muted); }
+
+.seq-empty { margin:24px 0; color:var(--muted); font-size:15px; }
+.seq-empty[hidden] { display:none; }
+.seq-error:empty { display:none; }
+.seq-error { color:var(--coral); }
+
+.seq-foot { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:16px; font-size:13px; color:var(--muted); }
+.seq-legend { display:flex; flex-wrap:wrap; gap:18px; align-items:center; }
+.seq-legend-item { display:flex; align-items:center; gap:6px; }
+.seq-fyi a { color:var(--ink); }
+.seq-foot-end { display:flex; flex-wrap:wrap; align-items:center; gap:18px; }
+.seq .seq-design { color:var(--muted); font-size:12px; text-decoration:underline; text-decoration-color:var(--seq-row-line); text-underline-offset:3px; }
+
+/* Phone: each row stacks place, mark, reason and move on one line, then Now, Then and Reaches; Mine stays on top. */
+@media (max-width:760px) {
+  .seq { margin-top:20px; gap:16px; }
+  .seq-head { flex-direction:column; align-items:stretch; }
+  .seq-tools { justify-content:space-between; gap:12px; }
+  .seq-board { min-width:0; padding-left:20px; }
+  .seq-columns { display:none; }
+  .seq-row { height:auto; grid-template-columns:minmax(0,1fr); gap:8px; padding:12px; }
+  .seq-row.has-line::before { display:none; }
+  .seq-why { order:1; gap:10px; }
+  .seq-why-text { flex-direction:row; flex-wrap:wrap; align-items:center; gap:4px 10px; }
+  .seq-move { padding-left:0; }
+  .seq-now { order:2; }
+  .seq-place { width:auto; font-size:15px; }
+  .seq-then { order:3; white-space:normal; }
+  .seq-reaches { order:4; }
+  .seq-then:empty,.seq-reaches:empty { display:none; }
+  .seq-patch { padding:0; }
+  .seq-step { white-space:normal; }
+}
+@media (prefers-reduced-motion:reduce) { .seq * { transition:none !important; } }

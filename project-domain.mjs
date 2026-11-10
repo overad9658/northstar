@@ -1,4 +1,5 @@
 import {
+  IDEA_DEFAULT_SCORE,
   PROJECT_STATUSES,
   SCHEDULE_STAGES,
   SCORE_FIELDS,
@@ -6,7 +7,9 @@ import {
 
 export {
   FOCUS_MIN_SCORE,
+  IDEA_DEFAULT_SCORE,
   isFocusProject,
+  isIdea,
   PROJECT_STATUSES,
   SCHEDULE_STAGES,
   SCORE_FIELDS,
@@ -35,6 +38,11 @@ function invalid(error) {
 
 export function validateProject(input, { partial = false } = {}) {
   const output = {};
+  const idea = input.status === 'Scheduled' && (input.scheduleStage ?? input.schedule_stage) === 'Idea';
+  if (idea && !partial) {
+    input = { ...input };
+    for (const key of SCORE_FIELDS) if (input[key] === undefined || input[key] === '') input[key] = IDEA_DEFAULT_SCORE;
+  }
   const requiredFields = ['name', ...SCORE_FIELDS];
   if (!partial && requiredFields.some((key) => input[key] === undefined)) {
     return invalid('Name and all four scores are required.');

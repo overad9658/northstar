@@ -23,6 +23,7 @@ export function createTeamService(db) {
         COALESCE(SUM(CASE WHEN ${visible} AND p.archived = 0 AND p.status != 'Complete' THEN p.capacity ELSE 0 END), 0) AS occupied,
         COUNT(CASE WHEN ${visible} THEN p.id END) AS projectCount,
         (SELECT COUNT(*) FROM kanban_cards c WHERE c.team_id = t.id) AS cardCount,
+        (SELECT COUNT(*) FROM kanban_cards c WHERE c.team_id = t.id AND c.archived = 0) AS boardCardCount,
         (SELECT COUNT(*) FROM team_members m WHERE m.team_id = t.id) AS memberCount,
         t.capacity - COALESCE(SUM(CASE WHEN ${visible} AND p.archived = 0 AND p.status != 'Complete' THEN p.capacity ELSE 0 END), 0) AS available
       FROM teams t LEFT JOIN projects p ON p.team = t.name COLLATE NOCASE

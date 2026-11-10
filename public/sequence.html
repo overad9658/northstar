@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="description" content="What happens next, who does it, and what it unlocks.">
+    <title>Sequence — Northstar</title>
+    <link rel="icon" href="/favicon.svg">
+    <script src="/theme.js"></script>
+    <link rel="stylesheet" href="/styles.css">
+    <link rel="stylesheet" href="/sequence.css">
+    <script src="/sequence.js" type="module"></script>
+  </head>
+  <body>
+    <main class="app-shell sequence-shell">
+      <header class="topbar">
+        <a class="brand" href="/" aria-label="Northstar home"><span class="brand-mark">N</span><span>Northstar</span></a>
+        <div class="topbar-actions"><button class="theme-toggle" data-theme-toggle type="button" aria-label="Switch to dark mode" aria-pressed="false"><span class="theme-icon-light" aria-hidden="true">☀</span><span class="theme-icon-dark" aria-hidden="true">☾</span></button><a class="button secondary button-link" href="/kanban.html">Kanban board</a></div>
+      </header>
+
+      <div class="seq" id="sequence-app" aria-busy="true">
+        <header class="seq-head">
+          <h1 class="seq-title">Sequence</h1>
+          <div class="seq-tools">
+            <span class="seq-queue" id="sequence-queue"></span>
+            <button class="seq-mine" id="sequence-mine" type="button" aria-pressed="false">Mine</button>
+            <span class="seq-run" id="sequence-run"></span>
+          </div>
+        </header>
+        <div class="seq-scroll">
+          <div class="seq-board" id="sequence-board">
+            <div class="seq-columns" aria-hidden="true"><span></span><span>Now</span><span>Then</span><span>Reaches</span></div>
+            <ol class="seq-rows" id="sequence-rows" aria-label="Steps in order"></ol>
+          </div>
+        </div>
+        <p class="seq-empty" id="sequence-empty" hidden></p>
+        <footer class="seq-foot" id="sequence-foot"></footer>
+      </div>
+      <p class="seq-error" id="sequence-error" role="alert"></p>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,16 @@
+/* Compact page header shared by every page: title and tagline on one slim line, the height goes to the content. Loaded last so it wins over page-specific intro sizes. */
+.page-head { padding:18px 0 16px; align-items:center; }
+.page-title { min-width:0; display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 14px; }
+.page-title .eyebrow { display:none; }
+.page-head h1 { max-width:none; font-size:26px; line-height:1.15; letter-spacing:-.02em; }
+.page-head .subtitle { margin:0; font-size:12px; line-height:1.4; }
+.page-head .kanban-export { margin:0 0 0 auto; padding:7px 12px; font-size:12px; }
+.page-head .summary { gap:20px; padding-bottom:0; }
+.page-head .summary strong { font-size:22px; }
+@media (max-width:620px) {
+  .page-head { padding:14px 0 12px; }
+  .page-head h1 { font-size:22px; }
+  .page-head .kanban-export { margin-left:0; }
+  .page-head .summary { margin-top:12px; padding:10px 12px; gap:10px 12px; }
+  .page-head .summary strong { font-size:19px; }
+}

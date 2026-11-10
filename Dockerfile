@@ -23,31 +23,7 @@ RUN apk upgrade --no-cache \
 
 COPY --from=node-runtime /usr/local/bin/node /usr/local/bin/node
 COPY --from=app-dependencies /app/node_modules ./node_modules
-COPY package.json \
-activity-service.mjs \
-    api.mjs \
-    auth-service.mjs \
-    backup-service.mjs \
-    data-api.mjs \
-    database.mjs \
-    events-service.mjs \
-    http-utils.mjs \
-    kanban-service.mjs \
-    okr-service.mjs \
-    planning-service.mjs \
-    postgres-database.mjs \
-    postgres-worker.mjs \
-    project-domain.mjs \
-    project-service.mjs \
-    rate-limit.mjs \
-    server.mjs \
-    sso-service.mjs \
-    sso-settings.mjs \
-    team-service.mjs \
-    todo-service.mjs ./
-COPY public ./public
-COPY docs/*.md ./docs/
-COPY mcp/README.md ./mcp/README.md
+COPY . ./
 
 RUN mkdir -p /data && chown -R node:node /app /data
 USER node

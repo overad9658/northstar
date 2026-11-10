@@ -3,6 +3,17 @@ import { FOCUS_MIN_SCORE } from './public/shared/project-rules.js';
 
 const BACKUP_FORMAT = 'northstar-priority-matrix';
 const BACKUP_VERSION = 1;
+// Progress collections (and sequence runs) are optional: a backup without one leaves that table as it
+// is, so restoring an older backup never erases daily metrics, reports, milestones or sequencing passes.
+const PROGRESS_COLLECTIONS = Object.freeze({
+  metricDefs: { table: 'metric_defs', limit: 1_000 },
+  metrics: { table: 'metrics', limit: 1_000_000 },
+  reports: { table: 'reports', limit: 100_000 },
+  milestones: { table: 'milestones', limit: 100_000 },
+  progressChanges: { table: 'progress_changes', limit: 1_000_000 },
+  sequenceRuns: { table: 'sequence_runs', limit: 100_000 },
+  pageSettings: { table: 'page_settings', limit: 1_000 },
+});
 const COLLECTION_LIMITS = Object.freeze({
   projects: 10_000,
   projectMoves: 100_000,
@@ -28,16 +39,20 @@ function validateBackupDocument(input) {
   if (input.kanbanCardNotes !== undefined && (!Array.isArray(input.kanbanCardNotes) || input.kanbanCardNotes.length > 250_000)) throw new Error('The backup contains invalid kanban card notes.');
   if (input.kanbanCardHistory !== undefined && (!Array.isArray(input.kanbanCardHistory) || input.kanbanCardHistory.length > 500_000)) throw new Error('The backup contains invalid kanban card history.');
   if (input.kanbanCardTags !== undefined && (!Array.isArray(input.kanbanCardTags) || input.kanbanCardTags.length > 2_000_000)) throw new Error('The backup contains invalid kanban card tags.');
+  if (input.kanbanCardBlockers !== undefined && (!Array.isArray(input.kanbanCardBlockers) || input.kanbanCardBlockers.length > 2_000_000)) throw new Error('The backup contains invalid kanban card blockers.');
   if (input.projectChanges !== undefined && (!Array.isArray(input.projectChanges) || input.projectChanges.length > 1_000_000)) throw new Error('The backup contains invalid project changes.');
   if (input.cardChanges !== undefined && (!Array.isArray(input.cardChanges) || input.cardChanges.length > 1_000_000)) throw new Error('The backup contains invalid card changes.');
   for (const [name, limit] of Object.entries({ okrObjectives: 10_000, okrKeyResults: 100_000, okrProjectLinks: 500_000, okrTaskLinks: 500_000 })) {
     if (input[name] !== undefined && (!Array.isArray(input[name]) || input[name].length > limit)) throw new Error(`The backup contains invalid ${name} records.`);
   }
+  for (const [collection, { limit }] of Object.entries(PROGRESS_COLLECTIONS)) {
+    if (input[collection] !== undefined && (!Array.isArray(input[collection]) || input[collection].length > limit)) throw new Error(`The backup contains invalid ${collection}.`);
+  }
   const totalCapacity = Number(input.settings?.totalCapacity);
   if (!Number.isInteger(totalCapacity) || totalCapacity < 0 || totalCapacity > 9999) {
     throw new Error('The backup contains an invalid team capacity.');
   }
-  return { ...input, teams: input.teams || [], teamMembers: input.teamMembers || [], kanbanColumns: input.kanbanColumns || [], kanbanCards: input.kanbanCards || [], kanbanCardNotes: input.kanbanCardNotes || [], kanbanCardHistory: input.kanbanCardHistory || [], kanbanCardTags: input.kanbanCardTags || [], projectChanges: input.projectChanges || [], cardChanges: input.cardChanges || [], okrObjectives: input.okrObjectives || [], okrKeyResults: input.okrKeyResults || [], okrProjectLinks: input.okrProjectLinks || [], okrTaskLinks: input.okrTaskLinks || [], totalCapacity };
+  return { ...input, teams: input.teams || [], teamMembers: input.teamMembers || [], kanbanColumns: input.kanbanColumns || [], kanbanCards: input.kanbanCards || [], kanbanCardNotes: input.kanbanCardNotes || [], kanbanCardHistory: input.kanbanCardHistory || [], kanbanCardTags: input.kanbanCardTags || [], kanbanCardBlockers: input.kanbanCardBlockers || [], projectChanges: input.projectChanges || [], cardChanges: input.cardChanges || [], okrObjectives: input.okrObjectives || [], okrKeyResults: input.okrKeyResults || [], okrProjectLinks: input.okrProjectLinks || [], okrTaskLinks: input.okrTaskLinks || [], totalCapacity };
 }
 
 function prepareRestoreStatements(db) {
@@ -65,12 +80,20 @@ function prepareRestoreStatements(db) {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `),
     kanbanColumn: db.prepare('INSERT INTO kanban_columns (id, name, position, team_id, created_at) VALUES (?, ?, ?, ?, ?)'),
-    kanbanCard: db.prepare('INSERT INTO kanban_cards (id, column_id, project_id, team_id, title, description, assignee, external_url, next_step, decision, card_key, archived, archived_at, source, position, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'),
+    kanbanCard: db.prepare('INSERT INTO kanban_cards (id, column_id, project_id, team_id, title, description, assignee, external_url, next_step, decision, card_key, archived, archived_at, source, position, rank, objective, rank_reason, reason_full, wait_until, outcome, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'),
     kanbanNote: db.prepare('INSERT INTO kanban_card_notes (id, card_id, body, created_at) VALUES (?, ?, ?, ?)'),
     kanbanHistory: db.prepare('INSERT INTO kanban_card_history (id, card_id, column_id, column_name, entered_at, exited_at) VALUES (?, ?, ?, ?, ?, ?)'),
     kanbanTag: db.prepare('INSERT INTO kanban_card_tags (card_id, name) VALUES (?, ?)'),
+    kanbanBlocker: db.prepare('INSERT INTO kanban_card_blockers (card_id, blocker_id) VALUES (?, ?)'),
     projectChange: db.prepare('INSERT INTO project_changes (id, project_id, field, from_value, to_value, note, actor, changed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'),
     cardChange: db.prepare('INSERT INTO card_changes (id, card_id, kind, detail, actor, changed_at) VALUES (?, ?, ?, ?, ?, ?)'),
+    metricDefs: db.prepare('INSERT INTO metric_defs (key, label, unit, direction, band, question, starts_when, hidden, position, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'),
+    metrics: db.prepare('INSERT INTO metrics (id, date, key, value, note, rebuilt, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'),
+    reports: db.prepare('INSERT INTO reports (id, date, body, bullets, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'),
+    milestones: db.prepare('INSERT INTO milestones (id, date, label, metric_key, created_at) VALUES (?, ?, ?, ?, ?)'),
+    progressChanges: db.prepare('INSERT INTO progress_changes (id, kind, subject, detail, actor, changed_at) VALUES (?, ?, ?, ?, ?, ?)'),
+    sequenceRuns: db.prepare('INSERT INTO sequence_runs (id, at, skill_version, scores, items) VALUES (?, ?, ?, ?, ?)'),
+    pageSettings: db.prepare('INSERT INTO page_settings (key, value) VALUES (?, ?)'),
     okrObjective: db.prepare('INSERT INTO okr_objectives (id, title, description, period, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'),
     okrKeyResult: db.prepare('INSERT INTO okr_key_results (id, objective_id, title, target, current, position) VALUES (?, ?, ?, ?, ?, ?)'),
     okrProjectLink: db.prepare('INSERT INTO okr_project_links (key_result_id, project_id) VALUES (?, ?)'),
@@ -106,11 +129,12 @@ function insertBackupRows(db, backup) {
   for (const row of backup.kanbanColumns) insert.kanbanColumn.run(row.id, row.name, row.position, row.team_id ?? fallbackTeamId, row.created_at);
   for (const row of backup.kanbanCards) {
     const columnTeamId = db.prepare('SELECT team_id AS teamId FROM kanban_columns WHERE id = ?').get(row.column_id)?.teamId;
-    insert.kanbanCard.run(row.id, row.column_id, row.project_id ?? null, row.team_id ?? columnTeamId ?? fallbackTeamId, row.title, row.description ?? '', row.assignee ?? '', row.external_url ?? '', row.next_step ?? '', row.decision ?? '', row.card_key || null, row.archived ? 1 : 0, row.archived_at ?? null, row.source ?? '', row.position, row.created_at, row.updated_at);
+    insert.kanbanCard.run(row.id, row.column_id, row.project_id ?? null, row.team_id ?? columnTeamId ?? fallbackTeamId, row.title, row.description ?? '', row.assignee ?? '', row.external_url ?? '', row.next_step ?? '', row.decision ?? '', row.card_key || null, row.archived ? 1 : 0, row.archived_at ?? null, row.source ?? '', row.position, row.rank ?? null, row.objective ?? '', row.rank_reason ?? '', row.reason_full ?? '', row.wait_until ?? null, row.outcome ?? '', row.created_at, row.updated_at);
   }
   for (const row of backup.kanbanCardNotes) insert.kanbanNote.run(row.id, row.card_id, row.body, row.created_at);
   for (const row of backup.kanbanCardHistory) insert.kanbanHistory.run(row.id, row.card_id, row.column_id, row.column_name, row.entered_at, row.exited_at ?? null);
   for (const row of backup.kanbanCardTags) insert.kanbanTag.run(row.card_id, row.name);
+  for (const row of backup.kanbanCardBlockers) insert.kanbanBlocker.run(row.card_id, row.blocker_id);
   for (const row of backup.cardChanges) insert.cardChange.run(row.id, row.card_id, row.kind, row.detail ?? '{}', row.actor ?? '', row.changed_at);
   for (const row of backup.projectChanges) insert.projectChange.run(row.id, row.project_id, row.field, row.from_value, row.to_value, row.note ?? '', row.actor ?? '', row.changed_at);
   backfillKanbanHistory(db);
@@ -118,6 +142,19 @@ function insertBackupRows(db, backup) {
   for (const row of backup.planningSessions) insert.session.run(row.id, row.token, row.leader_key, row.project_id, row.status, row.final_impact, row.final_urgency, row.final_confidence, row.final_effort, row.guest_access ?? 1, row.created_at, row.decided_at);
   for (const row of backup.planningSessionProjects) insert.sessionProject.run(row.session_id, row.project_id, row.position, row.status, row.revealed ?? 0, row.final_impact, row.final_urgency, row.final_confidence, row.final_effort, row.move_comment ?? '', row.decided_at);
   for (const row of backup.planningVotes) insert.vote.run(row.id, row.session_id, row.project_id, row.voter_token, row.voter_name, row.impact, row.urgency, row.confidence, row.effort, row.updated_at);
+  const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+  for (const row of backup.metricDefs ?? []) insert.metricDefs.run(row.key, row.label, row.unit ?? '', row.direction ?? 'neutral', row.band ?? 'momentum', row.question ?? '', row.starts_when ?? '', row.hidden ? 1 : 0, row.position ?? 0, row.description ?? '', row.created_at ?? now, row.updated_at ?? now);
+  for (const row of backup.metrics ?? []) insert.metrics.run(row.id, row.date, row.key, row.value ?? null, row.note ?? '', row.rebuilt ? 1 : 0, row.updated_at ?? now);
+  for (const row of backup.reports ?? []) insert.reports.run(row.id, row.date, row.body, row.bullets ?? '[]', row.created_at ?? now, row.updated_at ?? now);
+  for (const row of backup.milestones ?? []) insert.milestones.run(row.id, row.date, row.label, row.metric_key ?? '', row.created_at ?? now);
+  for (const row of backup.progressChanges ?? []) insert.progressChanges.run(row.id, row.kind, row.subject ?? '', row.detail ?? '{}', row.actor ?? '', row.changed_at ?? now);
+  for (const row of backup.sequenceRuns ?? []) insert.sequenceRuns.run(row.id, row.at ?? now, row.skill_version ?? '', row.scores ?? '{}', row.items ?? '[]');
+  for (const row of backup.pageSettings ?? []) insert.pageSettings.run(row.key, row.value ?? '');
+  // The needs-you column survives only when its team and column came back with the restore.
+  const needs = backup.progressSettings;
+  if (needs && db.prepare('SELECT 1 FROM kanban_columns WHERE id = ? AND team_id = ?').get(needs.needs_column_id, needs.needs_team_id)) {
+    db.prepare('UPDATE progress_settings SET needs_team_id = ?, needs_column_id = ? WHERE id = 1').run(needs.needs_team_id, needs.needs_column_id);
+  }
   for (const row of backup.okrObjectives) insert.okrObjective.run(row.id, row.title, row.description, row.period, row.created_at, row.updated_at);
   for (const row of backup.okrKeyResults) insert.okrKeyResult.run(row.id, row.objective_id, row.title, row.target, row.current, row.position);
   for (const row of backup.okrProjectLinks) insert.okrProjectLink.run(row.key_result_id, row.project_id);
@@ -165,6 +202,15 @@ export function createBackupService(db) {
         kanbanCardTags: db.prepare('SELECT * FROM kanban_card_tags ORDER BY card_id, name').all(),
         projectChanges: db.prepare('SELECT * FROM project_changes ORDER BY id').all(),
         cardChanges: db.prepare('SELECT * FROM card_changes ORDER BY id').all(),
+        kanbanCardBlockers: db.prepare('SELECT * FROM kanban_card_blockers ORDER BY card_id, blocker_id').all(),
+        metricDefs: db.prepare('SELECT * FROM metric_defs ORDER BY position, key').all(),
+        metrics: db.prepare('SELECT * FROM metrics ORDER BY id').all(),
+        reports: db.prepare('SELECT * FROM reports ORDER BY id').all(),
+        milestones: db.prepare('SELECT * FROM milestones ORDER BY id').all(),
+        progressChanges: db.prepare('SELECT * FROM progress_changes ORDER BY id').all(),
+        sequenceRuns: db.prepare('SELECT * FROM sequence_runs ORDER BY id').all(),
+        pageSettings: db.prepare('SELECT * FROM page_settings ORDER BY key').all(),
+        progressSettings: db.prepare('SELECT needs_team_id, needs_column_id FROM progress_settings WHERE id = 1').get() ?? null,
         okrObjectives: db.prepare('SELECT * FROM okr_objectives ORDER BY id').all(),
         okrKeyResults: db.prepare('SELECT * FROM okr_key_results ORDER BY objective_id, position, id').all(),
         okrProjectLinks: db.prepare('SELECT * FROM okr_project_links ORDER BY key_result_id, project_id').all(),
@@ -184,6 +230,7 @@ export function createBackupService(db) {
             DELETE FROM card_changes;
             DELETE FROM project_changes;
             DELETE FROM kanban_card_tags;
+            DELETE FROM kanban_card_blockers;
             DELETE FROM kanban_card_history;
             DELETE FROM kanban_card_notes;
             DELETE FROM kanban_cards;
@@ -195,6 +242,9 @@ export function createBackupService(db) {
             DELETE FROM projects;
             DELETE FROM teams;
           `);
+          const progressTables = Object.entries(PROGRESS_COLLECTIONS).filter(([collection]) => backup[collection] !== undefined).map(([, { table }]) => table);
+          for (const table of progressTables) db.exec(`DELETE FROM ${table}`);
+          if (db.dialect !== 'postgres' && progressTables.length) db.exec(`DELETE FROM sqlite_sequence WHERE name IN (${progressTables.map((table) => `'${table}'`).join(', ')})`);
           if (db.dialect !== 'postgres') db.exec("DELETE FROM sqlite_sequence WHERE name IN ('projects', 'teams', 'project_moves', 'planning_sessions', 'planning_votes', 'kanban_columns', 'kanban_cards', 'kanban_card_notes', 'kanban_card_history', 'project_changes', 'card_changes', 'okr_objectives', 'okr_key_results')");
           db.prepare('UPDATE portfolio_settings SET total_capacity = ? WHERE id = 1').run(backup.totalCapacity);
           insertBackupRows(db, backup);

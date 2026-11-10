@@ -51,7 +51,7 @@ test('every tool works against a running Northstar with a write token', async (t
   const { client, call } = await connect(t, { baseUrl, token: writeToken });
 
   const names = (await client.listTools()).tools.map((tool) => tool.name).sort();
-  assert.deepEqual(names, ['add_card_note', 'archive_card', 'decide_card', 'get_activity', 'get_board', 'get_card_by_key', 'get_project', 'list_cards', 'list_projects', 'list_teams', 'move_project', 'restore_card', 'set_team', 'status_export', 'upsert_card', 'upsert_project']);
+  assert.deepEqual(names, ['add_card_note', 'add_milestone', 'apply_view', 'archive_card', 'audit_board', 'decide_card', 'define_metric', 'export_board', 'export_progress', 'get_activity', 'get_board', 'get_card_by_key', 'get_metrics', 'get_needs_you', 'get_project', 'get_report', 'get_sequence', 'list_cards', 'list_milestones', 'list_projects', 'list_reports', 'list_teams', 'list_views', 'move_card', 'move_project', 'record_metrics', 'record_sequence_run', 'remove_metric', 'restore_card', 'set_needs_you', 'set_ranks', 'set_sequence_design', 'set_team', 'status_export', 'upsert_card', 'upsert_project', 'upsert_report']);
 
   const team = await call('set_team', { name: 'Platform Ops', capacity: 4 });
   assert.equal(team.isError, false, team.text);
@@ -65,6 +65,9 @@ test('every tool works against a running Northstar with a write token', async (t
   assert.equal((await call('upsert_project', { key: 'projectId', project })).value.created, false);
   const projectId = created.value.project.id;
   assert.deepEqual((await call('list_projects', { projectId: 'MCP-1' })).value.map((item) => item.id), [projectId]);
+  const idea = await call('upsert_project', { key: 'projectId', project: { projectId: 'MCP-IDEA', name: 'Agent idea', team: 'Platform Ops', status: 'Scheduled', scheduleStage: 'Idea' } });
+  assert.equal(idea.isError, false, idea.text);
+  assert.deepEqual((await call('list_projects', { stage: 'Idea' })).value.map((item) => item.projectId), ['MCP-IDEA']);
   assert.equal((await call('get_project', { id: projectId })).value.name, 'Agent sync');
   assert.equal((await call('get_project', { id: 99999 })).isError, true);
   const moved = await call('move_project', { id: projectId, impact: 7, urgency: 6, comment: 'Raised by the agent' });
@@ -104,14 +107,58 @@ test('every tool works against a running Northstar with a write token', async (t
   assert.deepEqual((await call('list_cards', { source: 'agent', archived: 'only' })).value.map((item) => item.id), [keyedId]);
   assert.equal((await call('get_card_by_key', { key: 'sync:T-7' })).value.archived, true);
   assert.equal((await call('restore_card', { id: keyedId })).value.archived, false);
+  // Rank, objective and blockers: upsert_card stores them, set_ranks moves many at once, list_cards sorts by rank.
+  const ranked = await call('upsert_card', { key: 'key', card: { key: 'seq:1', columnId: column.id, title: 'Sequenced', rank: 20, objective: 'Unblock the loop', blockedBy: [keyedId] } });
+  assert.deepEqual([ranked.value.card.rank, ranked.value.card.objective, ranked.value.card.blockedBy], [20, 'Unblock the loop', [keyedId]], ranked.text);
+  const rankedId = ranked.value.card.id;
+  const ranks = await call('set_ranks', { ranks: [{ id: keyedId, rank: 10 }, { id: rankedId, rank: 5 }] });
+  assert.deepEqual(ranks.value.ranks.map((item) => [item.id, item.rank]), [[keyedId, 10], [rankedId, 5]], ranks.text);
+  assert.deepEqual((await call('list_cards', { sort: 'rank' })).value.slice(0, 2).map((item) => item.id), [rankedId, keyedId]);
+  assert.match((await call('set_ranks', { ranks: [{ id: rankedId, rank: -1 }] })).text, /ranks\[0\]\.rank must be from 0/);
+  assert.equal((await call('set_ranks', { ranks: [{ id: rankedId, rank: 1 }, { id: 999999, rank: 2 }] })).isError, true);
+  assert.equal((await call('get_card_by_key', { key: 'seq:1' })).value.rank, 5, 'a refused set_ranks changes nothing');
+  assert.equal((await call('set_ranks', { ranks: [{ id: rankedId, rank: null }] })).value.ranks[0].rank, null);
+  // A sequencing pass: one call sets the cards and stores the run; get_sequence reads it back.
+  const pass = await call('record_sequence_run', { skillVersion: 'seq-test', scores: { refuted: 0 }, items: [{ id: rankedId, rank: 1, rankReason: 'Starts the chain', outcome: 'Loop runs' }, { id: keyedId, rank: 2 }] });
+  assert.equal(pass.isError, false, pass.text);
+  assert.equal(pass.value.run.skillVersion, 'seq-test');
+  const seq = await call('get_sequence');
+  assert.deepEqual(seq.value.rows.slice(0, 2).map((item) => [item.id, item.rankReason, item.reaches]), [[rankedId, 'Starts the chain', 'Loop runs'], [keyedId, '', '']], seq.text);
+  assert.deepEqual((await call('get_sequence', { mine: true })).value.rows, []);
+  assert.match((await call('record_sequence_run', { skillVersion: 'x', items: [{ id: rankedId, rank: 1, rankReason: 'x'.repeat(81) }] })).text, /items\[0\]\.rankReason must be 0–80 characters/);
+  assert.equal((await call('set_sequence_design', { url: 'https://design.example/seq' })).value.designUrl, 'https://design.example/seq');
+  assert.equal((await call('set_sequence_design', { url: 'http://design.example/seq' })).isError, true);
+  assert.equal((await call('set_sequence_design', { url: '' })).value.designUrl, '');
   const board = await call('get_board', { teamId: column.teamId });
   assert.ok(board.value.cards.some((item) => item.id === keyedId), board.text);
+  const allBoards = await call('get_board', { team: 'all' });
+  assert.equal(allBoards.isError, false, allBoards.text);
+  assert.ok(allBoards.value.teams.some((item) => item.id === column.teamId), allBoards.text);
+  assert.equal(allBoards.value.cards.find((item) => item.id === keyedId).teamName, allBoards.value.teams.find((item) => item.id === column.teamId).name);
+  assert.equal((await call('get_board', { team: 'some' })).isError, true);
   assert.deepEqual((await call('list_cards', { teamId: column.teamId, key: 'sync:T-7' })).value.map((item) => item.id), [keyedId]);
   assert.deepEqual((await call('list_cards', { teamId: 99999, key: 'sync:T-7' })).value, []);
 
   const invalid = await call('move_project', { id: projectId, impact: 11, urgency: 6 });
   assert.deepEqual([invalid.isError, invalid.text], [true, 'Invalid input: arguments.impact must be from 1 to 10.']);
   assert.equal((await call('add_card_note', { cardId, body: 'x', extra: true })).isError, true);
+});
+
+test('saved views are listed and applied through the token owner', async (t) => {
+  const { baseUrl, send, owner, token } = await startNorthstar(t);
+  for (const [name, impact] of [['Alpha', 9], ['Bravo', 3], ['Charlie', 6]]) {
+    await send('/api/projects', 'POST', { name, impact, urgency: 4, confidence: 5, effort: 5 }, owner);
+  }
+  const view = await send('/api/views', 'POST', { name: 'Big bets', params: 'f.impact=5..&sort=name:desc' }, owner);
+  const { call } = await connect(t, { baseUrl, token: await token('Views reader', 'read') });
+
+  assert.deepEqual((await call('list_views')).value.map((item) => item.name), ['Big bets']);
+  const byName = await call('apply_view', { name: 'big BETS' });
+  assert.equal(byName.isError, false, byName.text);
+  assert.deepEqual(byName.value.projects.map((project) => project.name), ['Charlie', 'Alpha']);
+  assert.deepEqual((await call('apply_view', { id: view.id })).value.view, { id: view.id, name: 'Big bets', params: view.params });
+  assert.equal((await call('apply_view', { name: 'missing' })).text, 'Northstar returned HTTP 404: View not found.');
+  assert.equal((await call('apply_view', {})).isError, true);
 });
 
 test('a read token keeps read tools and drops write tools after the first refusal', async (t) => {
@@ -128,11 +175,12 @@ test('a read token keeps read tools and drops write tools after the first refusa
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(changed, true);
   const names = (await client.listTools()).tools.map((tool) => tool.name);
-  assert.ok(names.includes('list_projects'));
-  assert.ok(!names.some((name) => ['upsert_project', 'move_project', 'upsert_card', 'add_card_note', 'decide_card', 'set_team', 'archive_card', 'restore_card'].includes(name)));
+  assert.ok(['list_projects', 'audit_board', 'export_board'].every((name) => names.includes(name)));
+  assert.ok(!names.some((name) => ['upsert_project', 'move_project', 'upsert_card', 'move_card', 'add_card_note', 'decide_card', 'set_team', 'archive_card', 'restore_card', 'record_metrics', 'define_metric', 'upsert_report', 'add_milestone', 'set_needs_you', 'remove_metric', 'set_ranks', 'record_sequence_run', 'set_sequence_design'].includes(name)));
+  assert.ok(['get_metrics', 'get_report', 'list_reports', 'list_milestones', 'get_needs_you', 'export_progress', 'get_sequence'].every((name) => names.includes(name)));
 
   const declared = await connect(t, { baseUrl, token: readToken, scope: 'read' });
-  assert.equal((await declared.client.listTools()).tools.length, 8);
+  assert.equal((await declared.client.listTools()).tools.length, 19);
 });
 
 test('a bad token is refused with the API status, and the token never appears in errors', async (t) => {
@@ -166,4 +214,124 @@ test('NORTHSTAR_URL must be http or https without credentials', () => {
   assert.throws(() => parseBaseUrl('ftp://northstar.example'), /http or https/);
   assert.throws(() => parseBaseUrl('https://user:pass@northstar.example'), /credentials/);
   assert.throws(() => parseBaseUrl('not a url'), /valid URL/);
+});
+
+
+test('cards are placed, moved, audited and exported across teams by name', async (t) => {
+  const { baseUrl, send, owner, token } = await startNorthstar(t);
+  const { call } = await connect(t, { baseUrl, token: await token('Board agent', 'write') });
+  const first = await send('/api/kanban/columns', 'POST', { name: 'Backlog' }, owner);
+  const other = (await call('set_team', { name: 'Data Ops', capacity: 3 })).value;
+  for (const name of ['Backlog', 'In progress']) await send(`/api/kanban/columns?teamId=${other.id}`, 'POST', { name }, owner);
+  const project = (await call('upsert_project', { key: 'projectId', project: { projectId: 'DO-1', name: 'Pipeline', team: 'Data Ops', status: 'Scheduled', impact: 5, urgency: 5, confidence: 5, effort: 5, description: 'Goal: one pipeline.' } })).value.project;
+
+  // a new card needs the team and the column, and a column the team lacks is an error
+  const card = { externalUrl: 'https://tracker.example/DO-1', title: 'Build the pipeline', assignee: 'ops-bot', projectId: project.id };
+  assert.match((await call('upsert_card', { card, column: 'Backlog' })).text, /Name the team for a new card/);
+  assert.match((await call('upsert_card', { card, team: 'Data Ops', column: 'Review' })).text, /Data Ops has no column "Review"\. Its columns: Backlog, In progress\./);
+  assert.match((await call('upsert_card', { card, team: 'Nobody', column: 'Backlog' })).text, /No team "Nobody"/);
+  const created = await call('upsert_card', { card, team: 'data ops', column: 'backlog' });
+  assert.equal(created.value.created, true, created.text);
+  assert.equal(created.value.card.teamId, other.id);
+  const cardId = created.value.card.id;
+  // an existing card keeps its team: updates by name on its own board, refused on another
+  assert.equal((await call('upsert_card', { card: { ...card, title: 'Pipeline v1' } })).value.card.title, 'Pipeline v1');
+  assert.match((await call('upsert_card', { card, team: String(first.teamId), column: 'Backlog' })).text, /a card stays on its own team/);
+
+  // move_card: by key/url/id, with a dated status line; Scheduled goes Active outside the backlog
+  const moved = await call('move_card', { externalUrl: card.externalUrl, column: 'In progress', projectStatus: 'Building the first stage' });
+  assert.equal(moved.isError, false, moved.text);
+  assert.equal(moved.value.card.columnId === created.value.card.columnId, false);
+  assert.deepEqual(moved.value.projectChanged, ['description', 'status']);
+  assert.equal(moved.value.project.status, 'Active');
+  assert.match(moved.value.project.description, /^Status \d{4}-\d{2}-\d{2}: Building the first stage\n\nGoal: one pipeline\.$/);
+  const again = await call('move_card', { id: cardId, column: 'In progress', projectStatus: 'Stage one done' });
+  assert.equal((again.value.project.description.match(/^Status /gm) || []).length, 1);
+  assert.match((await call('move_card', { id: cardId, column: 'Done' })).text, /Data Ops has no column "Done"/);
+  assert.match((await call('move_card', { id: cardId, key: 'x', column: 'Backlog' })).text, /exactly one of id, key or externalUrl/);
+
+  // archive, notes and decisions work on a card of any team
+  assert.equal((await call('add_card_note', { cardId, body: 'From the agent' })).value.body, 'From the agent');
+  await call('upsert_card', { card: { ...card, decision: { options: ['Ship', 'Wait'] } } });
+  assert.equal((await call('decide_card', { id: cardId, option: 'Ship' })).value.decision.decidedOption, 'Ship');
+
+  // audit: the caller names the active columns and the assignee variants
+  await call('upsert_project', { key: 'projectId', project: { projectId: 'DO-2', name: 'Second', team: 'Data Ops', status: 'Scheduled', impact: 4, urgency: 4, confidence: 5, effort: 5 } });
+  const second = (await call('list_projects', { projectId: 'DO-2' })).value[0];
+  await call('upsert_card', { key: 'key', card: { key: 'do:2', title: 'Second card', projectId: second.id, externalUrl: 'https://tracker.example/DO-2' }, team: 'Data Ops', column: 'In progress' });
+  const audit = await call('audit_board', { activeColumns: ['In progress'], assigneeVariants: { 'ops-bot': 'Ops Bot' } });
+  assert.equal(audit.isError, false, audit.text);
+  assert.deepEqual(audit.value.problems.map((item) => item.problem).sort(), ['assignee_variant', 'no_status_line', 'scheduled_with_active_cards']);
+  assert.equal((await call('audit_board', { activeColumns: [] })).isError, true);
+
+  // archive keeps the card in the export; two exports are byte for byte the same
+  assert.equal((await call('archive_card', { id: cardId })).value.archived, true);
+  const one = await call('export_board');
+  assert.equal(one.isError, false, one.text);
+  assert.ok(one.value.cards.some((item) => item.id === cardId && item.archived));
+  assert.deepEqual(one.value.teams.map((item) => item.id), [...one.value.teams.map((item) => item.id)].sort((a, b) => a - b));
+  assert.ok(one.value.projects.some((item) => item.projectId === 'DO-1'));
+  assert.equal(one.text, (await call('export_board')).text);
+});
+
+test('progress: metrics, definitions, reports, milestones and the needs-you column, idempotent end to end', async (t) => {
+  const { baseUrl, send, owner, token } = await startNorthstar(t);
+  const { call } = await connect(t, { baseUrl, token: await token('Progress agent', 'write') });
+  await send('/api/kanban/columns', 'POST', { name: 'Waiting on you' }, owner);
+
+  const defined = await call('define_metric', { key: 'prs_merged', label: 'PRs merged', direction: 'up_good', band: 'momentum', question: 'How much did we merge?' });
+  assert.equal(defined.value.created, true, defined.text);
+  assert.deepEqual((await call('define_metric', { key: 'prs_merged', label: 'PRs merged', direction: 'up_good' })).value.changed, []);
+  await call('define_metric', { key: 'queue_open', label: 'Open queue', direction: 'down_good', startsWhen: 'the queue is connected' });
+
+  const day = { date: '2026-11-03', metrics: [{ key: 'prs_merged', value: 4, note: 'Release day' }, { key: 'queue_open', value: null }] };
+  const recorded = await call('record_metrics', day);
+  assert.equal(recorded.value.created, 2, recorded.text);
+  const repeated = await call('record_metrics', day);
+  assert.deepEqual([repeated.value.created, repeated.value.updated, repeated.value.unchanged], [0, 0, 2]);
+  await call('record_metrics', { date: '2026-11-02', metrics: [{ key: 'prs_merged', value: 2, rebuilt: true }] });
+  const metrics = await call('get_metrics', { keys: ['prs_merged'], from: '2026-11-01' });
+  assert.deepEqual(metrics.value.metrics.map((item) => [item.date, item.value, item.rebuilt]), [['2026-11-02', 2, true], ['2026-11-03', 4, false]]);
+  assert.deepEqual(metrics.value.defs.map((item) => item.key), ['prs_merged']);
+  assert.match((await call('record_metrics', { date: '2026-11-3', metrics: [{ key: 'a', value: 1 }] })).text, /^Invalid input: arguments\.date/);
+  assert.match((await call('record_metrics', { date: '2026-11-03', metrics: [{ key: 'a', value: '1' }] })).text, /must be a number/);
+  assert.match((await call('record_metrics', { date: '2026-02-30', metrics: [{ key: 'a', value: 1 }] })).text, /HTTP 400: date must be a calendar date/);
+
+  const report = { date: '2026-11-03', markdown: '# Release day\n\nFour merged.', bullets: [{ text: 'Four merged', metric_key: 'prs_merged' }] };
+  assert.equal((await call('upsert_report', report)).value.created, true);
+  assert.equal((await call('upsert_report', report)).value.changed, false);
+  assert.deepEqual((await call('get_report', { date: '2026-11-03' })).value.bullets, report.bullets);
+  assert.deepEqual((await call('list_reports', {})).value.map((item) => [item.date, item.title]), [['2026-11-03', 'Release day']]);
+  assert.equal((await call('get_report', { date: '2026-11-04' })).text, 'Northstar returned HTTP 404: Report not found.');
+
+  assert.equal((await call('add_milestone', { date: '2026-11-03', label: 'Pipeline live', metricKey: 'prs_merged' })).value.created, true);
+  assert.equal((await call('add_milestone', { date: '2026-11-03', label: 'Pipeline live', metricKey: 'prs_merged' })).value.changed, false);
+  assert.deepEqual((await call('list_milestones', { metricKey: 'prs_merged' })).value.map((item) => item.label), ['Pipeline live']);
+
+  assert.deepEqual((await call('get_needs_you')).value, { configured: false, count: 0, items: [] });
+  assert.match((await call('set_needs_you', { team: 'Nobody', column: 'Waiting on you' })).text, /No team "Nobody"/);
+  const teams = (await call('list_teams')).value;
+  const set = await call('set_needs_you', { team: teams[0].name, column: 'waiting on you' });
+  assert.equal(set.isError, false, set.text);
+  assert.equal((await call('get_needs_you')).value.configured, true);
+
+  const one = await call('export_progress');
+  assert.deepEqual(Object.keys(one.value), ['metricDefs', 'metrics', 'milestones', 'reports']);
+  assert.equal(one.text, (await call('export_progress')).text);
+  const activity = (await call('get_activity', { limit: 50 })).value.items.map((item) => item.type);
+  for (const type of ['metrics.recorded', 'metric.defined', 'report.created', 'milestone.added']) assert.ok(activity.includes(type), type);
+});
+
+test('remove_metric removes a definition, keeps its readings, and repeating it changes nothing', async (t) => {
+  const { baseUrl, token } = await startNorthstar(t);
+  const { call } = await connect(t, { baseUrl, token: await token('Progress agent', 'write') });
+  assert.equal((await call('define_metric', { key: 'issues_open', label: 'Open issues', hidden: true })).value.def.hidden, true);
+  await call('record_metrics', { date: '2026-11-03', metrics: [{ key: 'issues_open', value: 3 }] });
+  const removed = await call('remove_metric', { key: 'issues_open' });
+  assert.deepEqual(removed.value, { removed: true, key: 'issues_open', readingsKept: 1 }, removed.text);
+  assert.deepEqual((await call('remove_metric', { key: 'issues_open' })).value, { removed: false, key: 'issues_open' });
+  const left = await call('get_metrics', { keys: ['issues_open'] });
+  assert.deepEqual([left.value.defs, left.value.metrics.length], [[], 1]);
+  assert.match((await call('remove_metric', { key: 'Not A Slug' })).text, /^Invalid input/);
+  assert.ok((await call('get_activity', { limit: 20 })).value.items.some((item) => item.type === 'metric.removed'));
 });
