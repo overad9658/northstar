@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.1](https://github.com/overad9658/northstar/compare/v1.4.0...v1.4.1) (2026-11-10)
+
+
+### Bug Fixes
+
+* navigation buttons ([a797fff](https://github.com/overad9658/northstar/commit/a797fff3fdeb9c7c68dc83faf2232aa34803edb4))
+
 ## [1.4.0](https://github.com/overad9658/northstar/compare/v1.3.0...v1.4.0) (2026-11-10)
 
 
