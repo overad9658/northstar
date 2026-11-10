@@ -100,13 +100,6 @@ form.addEventListener('submit', async (event) => {
   });
   form.elements.title.focus();
 });
-$('#sign-out').addEventListener('click', async () => {
-  try {
-    await requestJson('/api/auth/logout', { method: 'POST' });
-    list.replaceChildren();
-    location.replace('/login.html');
-  } catch (cause) { error.textContent = cause.message; }
-});
 // Revalidate after history navigation to prevent displaying another account's rendered list.
 window.addEventListener('pagehide', () => { list.replaceChildren(); $('#todo-card').hidden = true; });
 window.addEventListener('pageshow', async (event) => {

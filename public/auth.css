@@ -6,7 +6,7 @@
   background:radial-gradient(circle at top,#e7f1ec 0,transparent 45%),var(--paper);
 }
 .auth-shell { width:min(420px,100%); display:grid; gap:28px; }
-.auth-shell>.brand { width:max-content; margin:auto; }
+.auth-topbar { display:flex; align-items:center; justify-content:space-between; }
 .auth-card {
   padding:32px;
   border:1px solid var(--line);

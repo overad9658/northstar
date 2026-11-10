@@ -1171,6 +1171,18 @@ window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer
 
 load().then(() => {
   if (!state.user) return;
+  const action = new URLSearchParams(location.search).get('menu');
+  if (action) {
+    const url = new URL(location.href);
+    url.searchParams.delete('menu');
+    history.replaceState(null, '', url);
+    if (action === 'add-project' && !$('#add-project').hidden) openDialog();
+    if (state.user.role === 'admin') {
+      if (action === 'api-access') openApiTokenDialog();
+      if (action === 'data') openDataDialog();
+      if (action === 'planning') openPlanningSetup();
+    }
+  }
   liveUpdates(['projects', 'teams', 'kanban'], async (kinds) => {
     if (kinds.includes('kanban') || kinds.includes('projects')) {
       state.cards.clear();
