@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.0](https://github.com/overad9658/northstar/compare/v1.4.3...v1.5.0) (2026-11-11)
+
+
+### Features
+
+* add constraint register and board ordering ([1d1d3fe](https://github.com/overad9658/northstar/commit/1d1d3fe7781ee8655ce73e14c9e9af6003a446d4))
+
 ## [1.4.3](https://github.com/overad9658/northstar/compare/v1.4.2...v1.4.3) (2026-11-10)
 
 
