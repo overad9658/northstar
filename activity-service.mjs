@@ -149,7 +149,23 @@ export function createActivityService(db) {
         return { id: `${type}:${row.id}`, type, ...base, date: row.subject, label: detail.label, metricKey: detail.metricKey ?? null };
       });
 
-      const items = [...projects, ...moves, ...decisions, ...cardMoves, ...notes, ...changes, ...cardChanges, ...progress]
+      // Constraint register changes: created, fields updated, stage moved, rank moved.
+      const constraints = select(`
+        SELECT ch.id, ch.constraint_id AS constraintId, k.name, ch.kind, ch.detail, ch.actor, ch.changed_at AS at
+        FROM toc_constraint_changes ch JOIN toc_constraints k ON k.id = ch.constraint_id
+        WHERE 1 = 1 ${after('ch.changed_at', sinceSql)}
+        ORDER BY ch.changed_at DESC, ch.id DESC LIMIT ?
+      `, sinceSql).map((row) => {
+        const detail = JSON.parse(row.detail || '{}');
+        const type = `constraint.${row.kind}`;
+        const fields = row.kind === 'created' ? { stage: detail.stage, rank: detail.rank ?? null }
+          : row.kind === 'updated' ? { fields: detail.fields }
+          : row.kind === 'stage' ? { from: detail.from, to: detail.to, note: detail.note ?? '' }
+          : { from: detail.from ?? null, to: detail.to ?? null };
+        return { id: `${type}:${row.id}`, type, at: isoTimestamp(row.at), constraintId: row.constraintId, name: row.name, ...fields, actor: row.actor };
+      });
+
+      const items = [...projects, ...moves, ...decisions, ...cardMoves, ...notes, ...changes, ...cardChanges, ...progress, ...constraints]
         .sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : b.id.localeCompare(a.id)))
         .slice(0, count);
       return { items };

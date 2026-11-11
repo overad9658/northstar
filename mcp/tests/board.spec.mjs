@@ -59,6 +59,22 @@ test('the audit lists each kind of problem, with the active columns the caller n
   assert.deepEqual(auditBoard({ boards: BOARDS, projects: PROJECTS, activeColumns: ['Review'] }).map((p) => p.problem), ['duplicate_external_url']);
 });
 
+test('once a constraint exists, open cards need a rating, and cards on a resolved constraint need a new one', () => {
+  const boards = [{ team: { id: 1, name: 'Platform' }, columns: [{ id: 10, name: 'To do' }, { id: 11, name: 'Done' }],
+    cards: [
+      { id: 1, columnId: 10, title: 'Rated', constraintId: 5, constraintRating: 'eases', archived: 0 },
+      { id: 2, columnId: 10, title: 'Unrated', constraintId: null, constraintRating: null, archived: 0 },
+      { id: 3, columnId: 10, title: 'On a resolved one', constraintId: 6, constraintRating: 'removes', archived: 0 },
+      { id: 4, columnId: 11, title: 'Done, unrated', archived: 0 },
+      { id: 5, columnId: 10, title: 'Archived, unrated', archived: 1 },
+    ] }];
+  const constraints = [{ id: 5, name: 'Review wait', rank: 1, stage: 'exploit' }, { id: 6, name: 'Old', rank: null, stage: 'resolved' }];
+  const problems = auditBoard({ boards, projects: [], activeColumns: ['To do'], constraints });
+  assert.deepEqual(problems.map((p) => [p.problem, p.cardId]), [['no_constraint_rating', 2], ['constraint_resolved', 3]]);
+  assert.deepEqual([problems[1].constraintId, problems[1].constraint], [6, 'Old']);
+  assert.deepEqual(auditBoard({ boards, projects: [], activeColumns: ['To do'] }), [], 'no constraints, no rating problems');
+});
+
 test('the export is stable: id order, sorted keys, no per-request fields', () => {
   const teams = [{ id: 2, name: 'Data', capacity: 3, projectCount: 1 }, { id: 1, name: 'Platform', capacity: 5, projectCount: 3 }];
   const out = exportBoard({ teams, boards: [...BOARDS].reverse(), projects: [...PROJECTS].reverse() });

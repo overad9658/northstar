@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 
-export const EVENT_KINDS = Object.freeze(['projects', 'kanban', 'teams', 'sequence']);
+export const EVENT_KINDS = Object.freeze(['projects', 'kanban', 'teams', 'sequence', 'constraints']);
 const HEARTBEAT_MS = 25_000;
 
 // Change notifications for open pages. Events say only which kinds changed, never what, and each
@@ -8,7 +8,7 @@ const HEARTBEAT_MS = 25_000;
 // project produces no event and no version bump for read-only viewers.
 // The emitter is in-process, so it covers one server; several servers on one PostgreSQL database
 // would need LISTEN/NOTIFY to share it.
-export function createEventsService({ projects, kanban, teams, sequence }) {
+export function createEventsService({ projects, kanban, teams, sequence, constraints }) {
   const snapshots = {
     projects: (includeHidden) => projects.list({ includeHidden }),
     kanban: (includeHidden) => kanban.list({ includeHidden }),
@@ -18,6 +18,12 @@ export function createEventsService({ projects, kanban, teams, sequence }) {
       run: sequence ? sequence.latestRuns()[0]?.id ?? null : null,
       cards: kanban.list({ includeHidden, archived: 'include' }).cards.filter((card) => card.rank !== null)
         .map((card) => [card.id, card.rank, card.rankReason, card.reasonFull, card.waitUntil, card.outcome, card.blockedBy, card.assignee, card.nextStep, card.title, card.columnId, card.archived, card.objective]),
+    }),
+    // The register changes with any constraint, or with a card's link or rating (kanban covers the rest).
+    constraints: (includeHidden) => ({
+      constraints: constraints ? constraints.list() : [],
+      cards: kanban.list({ includeHidden, archived: 'include' }).cards.filter((card) => card.constraintId !== null || card.constraintRating !== null)
+        .map((card) => [card.id, card.constraintId, card.constraintRating]),
     }),
   };
   const fingerprint = (kind, includeHidden) => createHash('sha256').update(JSON.stringify(snapshots[kind](includeHidden))).digest('hex');

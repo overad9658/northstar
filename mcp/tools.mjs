@@ -50,10 +50,10 @@ export const tools = [
   },
   {
     name: 'list_cards',
-    description: 'List kanban cards across team boards, filtered by key, externalUrl, projectId, teamId, assignee, tag, source or decision="open". Archived cards are left out unless archived is "include" or "only". sort="rank" orders ranked cards by rank (ties by id), then unranked ones by id; without it, cards come in board order. Each card carries rank (null when unranked), objective and blockedBy (card ids).',
+    description: 'List kanban cards across team boards, filtered by key, externalUrl, projectId, teamId, assignee, tag, source or decision="open". Archived cards are left out unless archived is "include" or "only". sort="rank" orders ranked cards by rank (ties by id), then unranked ones by id; sort="constraint" orders by the rank of the card\'s open constraint, then its rating (removes, eases, neutral, adds_load, unrated), then as "rank". Without sort, cards come in board order. Each card carries rank (null when unranked), objective, blockedBy (card ids), constraintId and constraintRating.',
     inputSchema: object({
       key: text(120, 1), externalUrl: text(2048, 1), projectId: id, teamId: id, assignee: text(80), tag: text(40, 1), source: text(80),
-      decision: { type: 'string', enum: ['open'] }, archived: { type: 'string', enum: ['include', 'only'] }, sort: { type: 'string', enum: ['rank'] },
+      decision: { type: 'string', enum: ['open'] }, archived: { type: 'string', enum: ['include', 'only'] }, sort: { type: 'string', enum: ['rank', 'constraint'] },
     }),
     async run(api, { assignee, teamId, ...query }) {
       const cards = await api.request('GET', '/api/kanban/cards', { query });
@@ -78,7 +78,7 @@ export const tools = [
   },
   {
     name: 'get_activity',
-    description: 'Recent project and card events, newest first. since is an ISO 8601 time; limit is 1–500.',
+    description: 'Recent project, card and constraint events, newest first (constraint.created, constraint.updated, constraint.stage, constraint.ranked among them). since is an ISO 8601 time; limit is 1–500.',
     inputSchema: object({ since: text(64, 1), limit: { type: 'integer', minimum: 1, maximum: 500 } }),
     run: (api, args) => api.request('GET', '/api/activity', { query: args }),
   },
@@ -115,11 +115,11 @@ export const tools = [
   },
   {
     name: 'audit_board',
-    description: 'Problems across every board, as a list: a Scheduled project (not an idea) with cards in an active column; a project with active cards and no "Status YYYY-MM-DD:" line; a card whose assignee is a known variant (assigneeVariants {"from": "to"}); cards sharing an externalUrl (archived ones included). activeColumns names the columns that count as active.',
+    description: 'Problems across every board, as a list: a Scheduled project (not an idea) with cards in an active column; a project with active cards and no "Status YYYY-MM-DD:" line; a card whose assignee is a known variant (assigneeVariants {"from": "to"}); cards sharing an externalUrl (archived ones included); once any constraint exists, an open card with no constraintRating; an open card linked to a resolved constraint (re-rate it). activeColumns names the columns that count as active.',
     inputSchema: object({ activeColumns: names(20), assigneeVariants: { type: 'object', additionalProperties: text(80) } }, ['activeColumns']),
     async run(api, { activeColumns, assigneeVariants }) {
-      const [{ boards: all }, projects] = await Promise.all([boards(api), api.request('GET', '/api/projects')]);
-      const problems = auditBoard({ boards: all, projects, activeColumns, assigneeVariants });
+      const [{ boards: all }, projects, register] = await Promise.all([boards(api), api.request('GET', '/api/projects'), api.request('GET', '/api/constraints')]);
+      const problems = auditBoard({ boards: all, projects, activeColumns, assigneeVariants, constraints: register.constraints });
       return { problems, count: problems.length };
     },
   },
@@ -151,7 +151,7 @@ export const tools = [
   {
     name: 'upsert_card',
     write: true,
-    description: 'Create a kanban card, or update the one whose key matches: its externalUrl (default) or, with key="key", its own card key. Repeating a call changes nothing. Place it with team (name or id) and column (name), or a raw card.columnId; a new card needs both team and column, and a column the team lacks is an error. An existing card stays on its own team. card.rank (0–1000000, null clears) is its place in a sequence and survives column moves; card.position is not settable (the board assigns it). card.objective is short text (≤300); card.blockedBy is a list of other card ids and replaces the stored list.',
+    description: 'Create a kanban card, or update the one whose key matches: its externalUrl (default) or, with key="key", its own card key. Repeating a call changes nothing. Place it with team (name or id) and column (name), or a raw card.columnId; a new card needs both team and column, and a column the team lacks is an error. An existing card stays on its own team. card.rank (0–1000000, null clears) is its place in a sequence and survives column moves; card.position is not settable (the board assigns it). card.objective is short text (≤300); card.blockedBy is a list of other card ids and replaces the stored list. card.constraintId links the card to a constraint (null unlinks it); card.constraintRating is how the card bears on it: removes, eases, neutral or adds_load (null = not rated).',
     inputSchema: object({ card: { type: 'object' }, key: { type: 'string', enum: ['externalUrl', 'key'] }, team: text(50, 1), column: text(80, 1) }, ['card']),
     async run(api, { card, key, team, column }) {
       if (team === undefined && column === undefined) return api.request('PUT', '/api/kanban/cards/upsert', { query: { key }, body: card });
@@ -244,6 +244,42 @@ export const tools = [
     description: 'Set the link to the Sequence page\'s design file, shown as a small "Design" link in its footer. url must be https; an empty url removes the link.',
     inputSchema: object({ url: text(2048) }, ['url']),
     run: (api, { url }) => api.request('PUT', '/api/sequence/settings', { body: { designUrl: url } }),
+  },
+  {
+    name: 'list_constraints',
+    description: 'The constraint register (Theory of Constraints): open constraints by rank (#1 is the constraint), then resolved ones. Each has name, rank, stage (identify, exploit, subordinate, elevate, resolved), measure, metricKey with its 30-day trend, evidence, owner, the history of its stage changes, the cards linked to it with their ratings, and counts per rating. Also unrated (open cards with no rating) and needsRerating (open cards on a resolved constraint).',
+    inputSchema: object({}),
+    run: (api) => api.request('GET', '/api/constraints'),
+  },
+  {
+    name: 'upsert_constraint',
+    write: true,
+    description: 'Create a constraint, or update the one named by id (else by name, any case). Fields left out keep their values; repeating a call changes nothing. rank places an open constraint (1 = the constraint; the others move down, ranks stay 1..n); a new one without rank goes last. stage starts at identify; resolving takes it out of the order. metricKey must be a defined Progress metric ("" unlinks it); its readings become the measure\'s trend.',
+    inputSchema: object({
+      id, name: text(120, 1), rank: { type: ['integer', 'null'], minimum: 1, maximum: 1000 },
+      stage: { type: 'string', enum: ['identify', 'exploit', 'subordinate', 'elevate', 'resolved'] },
+      measure: text(500), metricKey: text(64), evidence: text(2000), owner: text(80),
+    }),
+    run: (api, body) => {
+      if (body.id === undefined && body.name === undefined) throw fail(400, 'Name the constraint by id or name.');
+      return api.request('PUT', '/api/constraints/upsert', { body });
+    },
+  },
+  {
+    name: 'set_constraint_stage',
+    write: true,
+    description: 'Move a constraint (by id or name) to a stage: identify, exploit, subordinate, elevate or resolved, with an optional note on why. Each move is kept in its history and the activity feed. Resolving takes it out of the order (the next one becomes #1); reopening puts it back last. Repeating a call changes nothing.',
+    inputSchema: object({ id, name: text(120, 1), stage: { type: 'string', enum: ['identify', 'exploit', 'subordinate', 'elevate', 'resolved'] }, note: text(500) }, ['stage']),
+    async run(api, { id: constraintId, name, stage, note }) {
+      if ((constraintId === undefined) === (name === undefined)) throw fail(400, 'Name the constraint by exactly one of id or name.');
+      let target = constraintId;
+      if (target === undefined) {
+        const found = (await api.request('GET', '/api/constraints')).constraints.find((item) => lower(item.name) === lower(name));
+        if (!found) throw fail(404, `No constraint named "${name}".`);
+        target = found.id;
+      }
+      return api.request('PUT', `/api/constraints/${target}/stage`, { body: { stage, ...(note === undefined ? {} : { note }) } });
+    },
   },
   {
     name: 'archive_card',

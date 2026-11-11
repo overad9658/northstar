@@ -13,6 +13,8 @@ const PROGRESS_COLLECTIONS = Object.freeze({
   progressChanges: { table: 'progress_changes', limit: 1_000_000 },
   sequenceRuns: { table: 'sequence_runs', limit: 100_000 },
   pageSettings: { table: 'page_settings', limit: 1_000 },
+  constraints: { table: 'toc_constraints', limit: 10_000 },
+  constraintChanges: { table: 'toc_constraint_changes', limit: 1_000_000 },
 });
 const COLLECTION_LIMITS = Object.freeze({
   projects: 10_000,
@@ -80,7 +82,7 @@ function prepareRestoreStatements(db) {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `),
     kanbanColumn: db.prepare('INSERT INTO kanban_columns (id, name, position, team_id, created_at) VALUES (?, ?, ?, ?, ?)'),
-    kanbanCard: db.prepare('INSERT INTO kanban_cards (id, column_id, project_id, team_id, title, description, assignee, external_url, next_step, decision, card_key, archived, archived_at, source, position, rank, objective, rank_reason, reason_full, wait_until, outcome, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'),
+    kanbanCard: db.prepare('INSERT INTO kanban_cards (id, column_id, project_id, team_id, title, description, assignee, external_url, next_step, decision, card_key, archived, archived_at, source, position, rank, objective, rank_reason, reason_full, wait_until, outcome, constraint_id, constraint_rating, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'),
     kanbanNote: db.prepare('INSERT INTO kanban_card_notes (id, card_id, body, created_at) VALUES (?, ?, ?, ?)'),
     kanbanHistory: db.prepare('INSERT INTO kanban_card_history (id, card_id, column_id, column_name, entered_at, exited_at) VALUES (?, ?, ?, ?, ?, ?)'),
     kanbanTag: db.prepare('INSERT INTO kanban_card_tags (card_id, name) VALUES (?, ?)'),
@@ -94,6 +96,8 @@ function prepareRestoreStatements(db) {
     progressChanges: db.prepare('INSERT INTO progress_changes (id, kind, subject, detail, actor, changed_at) VALUES (?, ?, ?, ?, ?, ?)'),
     sequenceRuns: db.prepare('INSERT INTO sequence_runs (id, at, skill_version, scores, items) VALUES (?, ?, ?, ?, ?)'),
     pageSettings: db.prepare('INSERT INTO page_settings (key, value) VALUES (?, ?)'),
+    constraints: db.prepare('INSERT INTO toc_constraints (id, name, rank, stage, measure, metric_key, evidence, owner, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'),
+    constraintChanges: db.prepare('INSERT INTO toc_constraint_changes (id, constraint_id, kind, detail, actor, changed_at) VALUES (?, ?, ?, ?, ?, ?)'),
     okrObjective: db.prepare('INSERT INTO okr_objectives (id, title, description, period, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'),
     okrKeyResult: db.prepare('INSERT INTO okr_key_results (id, objective_id, title, target, current, position) VALUES (?, ?, ?, ?, ?, ?)'),
     okrProjectLink: db.prepare('INSERT INTO okr_project_links (key_result_id, project_id) VALUES (?, ?)'),
@@ -126,10 +130,15 @@ function insertBackupRows(db, backup) {
     insert.project.run(row.id, row.project_id, row.external_url ?? '', row.name, row.description, row.retrospective, row.blocked_note ?? '', row.archive_note ?? '', row.restore_note ?? '', row.team, row.status, scheduleStage, row.capacity, row.archived, row.hidden_from_read_only ?? 0, row.impact, row.urgency, row.confidence, row.effort, row.created_at, row.updated_at);
   }
   const fallbackTeamId = db.prepare('SELECT id FROM teams ORDER BY id LIMIT 1').get()?.id;
+  // Constraints go in before the cards that point at them. A backup without them keeps the stored ones.
+  const stamp = new Date().toISOString().slice(0, 19).replace('T', ' ');
+  for (const row of backup.constraints ?? []) insert.constraints.run(row.id, row.name, row.rank ?? null, row.stage ?? 'identify', row.measure ?? '', row.metric_key ?? '', row.evidence ?? '', row.owner ?? '', row.created_at ?? stamp, row.updated_at ?? stamp);
+  for (const row of backup.constraintChanges ?? []) insert.constraintChanges.run(row.id, row.constraint_id, row.kind, row.detail ?? '{}', row.actor ?? '', row.changed_at ?? stamp);
+  const knownConstraint = (id) => (id && db.prepare('SELECT 1 FROM toc_constraints WHERE id = ?').get(id) ? id : null);
   for (const row of backup.kanbanColumns) insert.kanbanColumn.run(row.id, row.name, row.position, row.team_id ?? fallbackTeamId, row.created_at);
   for (const row of backup.kanbanCards) {
     const columnTeamId = db.prepare('SELECT team_id AS teamId FROM kanban_columns WHERE id = ?').get(row.column_id)?.teamId;
-    insert.kanbanCard.run(row.id, row.column_id, row.project_id ?? null, row.team_id ?? columnTeamId ?? fallbackTeamId, row.title, row.description ?? '', row.assignee ?? '', row.external_url ?? '', row.next_step ?? '', row.decision ?? '', row.card_key || null, row.archived ? 1 : 0, row.archived_at ?? null, row.source ?? '', row.position, row.rank ?? null, row.objective ?? '', row.rank_reason ?? '', row.reason_full ?? '', row.wait_until ?? null, row.outcome ?? '', row.created_at, row.updated_at);
+    insert.kanbanCard.run(row.id, row.column_id, row.project_id ?? null, row.team_id ?? columnTeamId ?? fallbackTeamId, row.title, row.description ?? '', row.assignee ?? '', row.external_url ?? '', row.next_step ?? '', row.decision ?? '', row.card_key || null, row.archived ? 1 : 0, row.archived_at ?? null, row.source ?? '', row.position, row.rank ?? null, row.objective ?? '', row.rank_reason ?? '', row.reason_full ?? '', row.wait_until ?? null, row.outcome ?? '', knownConstraint(row.constraint_id), row.constraint_rating ?? null, row.created_at, row.updated_at);
   }
   for (const row of backup.kanbanCardNotes) insert.kanbanNote.run(row.id, row.card_id, row.body, row.created_at);
   for (const row of backup.kanbanCardHistory) insert.kanbanHistory.run(row.id, row.card_id, row.column_id, row.column_name, row.entered_at, row.exited_at ?? null);
@@ -210,6 +219,8 @@ export function createBackupService(db) {
         progressChanges: db.prepare('SELECT * FROM progress_changes ORDER BY id').all(),
         sequenceRuns: db.prepare('SELECT * FROM sequence_runs ORDER BY id').all(),
         pageSettings: db.prepare('SELECT * FROM page_settings ORDER BY key').all(),
+        constraints: db.prepare('SELECT * FROM toc_constraints ORDER BY id').all(),
+        constraintChanges: db.prepare('SELECT * FROM toc_constraint_changes ORDER BY id').all(),
         progressSettings: db.prepare('SELECT needs_team_id, needs_column_id FROM progress_settings WHERE id = 1').get() ?? null,
         okrObjectives: db.prepare('SELECT * FROM okr_objectives ORDER BY id').all(),
         okrKeyResults: db.prepare('SELECT * FROM okr_key_results ORDER BY objective_id, position, id').all(),

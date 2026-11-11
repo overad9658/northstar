@@ -51,7 +51,7 @@ test('every tool works against a running Northstar with a write token', async (t
   const { client, call } = await connect(t, { baseUrl, token: writeToken });
 
   const names = (await client.listTools()).tools.map((tool) => tool.name).sort();
-  assert.deepEqual(names, ['add_card_note', 'add_milestone', 'apply_view', 'archive_card', 'audit_board', 'decide_card', 'define_metric', 'export_board', 'export_progress', 'get_activity', 'get_board', 'get_card_by_key', 'get_metrics', 'get_needs_you', 'get_project', 'get_report', 'get_sequence', 'list_cards', 'list_milestones', 'list_projects', 'list_reports', 'list_teams', 'list_views', 'move_card', 'move_project', 'record_metrics', 'record_sequence_run', 'remove_metric', 'restore_card', 'set_needs_you', 'set_ranks', 'set_sequence_design', 'set_team', 'status_export', 'upsert_card', 'upsert_project', 'upsert_report']);
+  assert.deepEqual(names, ['add_card_note', 'add_milestone', 'apply_view', 'archive_card', 'audit_board', 'decide_card', 'define_metric', 'export_board', 'export_progress', 'get_activity', 'get_board', 'get_card_by_key', 'get_metrics', 'get_needs_you', 'get_project', 'get_report', 'get_sequence', 'list_cards', 'list_constraints', 'list_milestones', 'list_projects', 'list_reports', 'list_teams', 'list_views', 'move_card', 'move_project', 'record_metrics', 'record_sequence_run', 'remove_metric', 'restore_card', 'set_constraint_stage', 'set_needs_you', 'set_ranks', 'set_sequence_design', 'set_team', 'status_export', 'upsert_card', 'upsert_constraint', 'upsert_project', 'upsert_report']);
 
   const team = await call('set_team', { name: 'Platform Ops', capacity: 4 });
   assert.equal(team.isError, false, team.text);
@@ -144,6 +144,56 @@ test('every tool works against a running Northstar with a write token', async (t
   assert.equal((await call('add_card_note', { cardId, body: 'x', extra: true })).isError, true);
 });
 
+test('the constraint tools keep the register, link cards and feed the audit and the activity feed', async (t) => {
+  const { baseUrl, send, owner, token } = await startNorthstar(t);
+  const { call } = await connect(t, { baseUrl, token: await token('TOC agent', 'write') });
+  await send('/api/kanban/columns', 'POST', { name: 'To do' }, owner);
+  await send('/api/kanban/columns', 'POST', { name: 'Done' }, owner);
+  const team = (await call('list_teams')).value[0].name;
+
+  // Before any constraint exists the audit asks for no ratings.
+  await call('upsert_card', { team, column: 'To do', card: { externalUrl: 'https://tracker.example/C-0', title: 'Plain chore' } });
+  assert.deepEqual((await call('audit_board', { activeColumns: ['To do'] })).value.problems.filter((p) => p.problem === 'no_constraint_rating'), []);
+
+  await call('define_metric', { key: 'review_hours', label: 'Review hours', unit: 'h', direction: 'down_good' });
+  await call('record_metrics', { date: '2030-01-01', metrics: [{ key: 'review_hours', value: 30 }] });
+  const first = await call('upsert_constraint', { name: 'Review wait', measure: 'Median hours a PR waits', metricKey: 'review_hours', evidence: 'Queue grew 3x in a month', owner: 'sam' });
+  assert.equal(first.value.created, true, first.text);
+  assert.equal((await call('upsert_constraint', { name: 'Review wait', owner: 'sam' })).value.created, false, 'repeating a call matches by name');
+  const second = await call('upsert_constraint', { name: 'Flaky tests', rank: 1 });
+  assert.deepEqual((await call('list_constraints')).value.constraints.map((item) => [item.name, item.rank]), [['Flaky tests', 1], ['Review wait', 2]]);
+  assert.match((await call('upsert_constraint', { name: 'X', stage: 'done' })).text, /arguments\.stage must be one of/);
+  assert.match((await call('upsert_constraint', { rank: 1 })).text, /by id or name/);
+  assert.match((await call('upsert_constraint', { name: 'X', metricKey: 'missing' })).text, /not a defined Progress metric/);
+
+  const reviewId = first.value.constraint.id;
+  const linked = await call('upsert_card', { team, column: 'To do', card: { externalUrl: 'https://tracker.example/C-1', title: 'Auto-assign reviewers', constraintId: reviewId, constraintRating: 'removes' } });
+  assert.deepEqual([linked.value.card.constraintId, linked.value.card.constraintRating], [reviewId, 'removes'], linked.text);
+  await call('upsert_card', { team, column: 'Done', card: { externalUrl: 'https://tracker.example/C-2', title: 'Shipped, unrated' } });
+  assert.equal((await call('upsert_card', { card: { externalUrl: 'https://tracker.example/C-1', constraintRating: 'better' } })).isError, true);
+  assert.deepEqual((await call('list_cards', { sort: 'constraint' })).value.map((item) => item.title).slice(0, 1), ['Auto-assign reviewers']);
+
+  let audit = (await call('audit_board', { activeColumns: ['To do'] })).value.problems;
+  assert.deepEqual(audit.filter((p) => p.problem === 'no_constraint_rating').map((p) => p.title), ['Plain chore'], 'open cards only; Done is not open');
+
+  assert.equal((await call('upsert_constraint', { id: reviewId, rank: 1 })).value.constraint.rank, 1, 'an explicit rank move');
+  const staged = await call('set_constraint_stage', { name: 'review WAIT', stage: 'resolved', note: 'Reviews take an hour now' });
+  assert.equal(staged.value.changed, true, staged.text);
+  assert.equal((await call('set_constraint_stage', { id: reviewId, stage: 'resolved' })).value.changed, false);
+  assert.match((await call('set_constraint_stage', { stage: 'exploit' })).text, /exactly one of id or name/);
+  assert.equal((await call('set_constraint_stage', { name: 'Nope', stage: 'exploit' })).isError, true);
+  const register = (await call('list_constraints')).value;
+  assert.deepEqual(register.constraints.map((item) => [item.name, item.rank, item.stage]), [['Flaky tests', 1, 'identify'], ['Review wait', null, 'resolved']]);
+  assert.equal(register.constraints[1].trend.readings[0].value, 30);
+  assert.equal(register.needsRerating, 1);
+  audit = (await call('audit_board', { activeColumns: ['To do'] })).value.problems;
+  assert.deepEqual(audit.filter((p) => p.problem === 'constraint_resolved').map((p) => [p.title, p.constraint]), [['Auto-assign reviewers', 'Review wait']]);
+
+  const types = (await call('get_activity', { limit: 100 })).value.items.map((item) => item.type);
+  for (const type of ['constraint.created', 'constraint.ranked', 'constraint.stage']) assert.ok(types.includes(type), type);
+  assert.equal(second.isError, false);
+});
+
 test('saved views are listed and applied through the token owner', async (t) => {
   const { baseUrl, send, owner, token } = await startNorthstar(t);
   for (const [name, impact] of [['Alpha', 9], ['Bravo', 3], ['Charlie', 6]]) {
@@ -180,7 +230,7 @@ test('a read token keeps read tools and drops write tools after the first refusa
   assert.ok(['get_metrics', 'get_report', 'list_reports', 'list_milestones', 'get_needs_you', 'export_progress', 'get_sequence'].every((name) => names.includes(name)));
 
   const declared = await connect(t, { baseUrl, token: readToken, scope: 'read' });
-  assert.equal((await declared.client.listTools()).tools.length, 19);
+  assert.equal((await declared.client.listTools()).tools.length, 20);
 });
 
 test('a bad token is refused with the API status, and the token never appears in errors', async (t) => {

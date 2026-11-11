@@ -42,7 +42,9 @@ export const isIdea = (project) => project.status === 'Scheduled' && project.sch
 // Problems on the board, as a list. activeColumns names the columns that mean work is under way;
 // assigneeVariants maps an assignee spelling to the one it should be ({ "from": "to" }).
 // boards: [{ team: { id, name }, columns: [{ id, name }], cards: [...] }] with archived cards in.
-export function auditBoard({ boards, projects, activeColumns, assigneeVariants = {} }) {
+// constraints: the register ([{ id, name, rank, stage }]); once it holds any, every open card (not
+// archived, not in a column named Done) should carry a constraintRating.
+export function auditBoard({ boards, projects, activeColumns, assigneeVariants = {}, constraints = [] }) {
   const active = new Set(activeColumns.map((name) => String(name).trim().toLocaleLowerCase()));
   const problems = [];
   const cards = boards.flatMap(({ team, columns, cards: teamCards }) => {
@@ -63,6 +65,13 @@ export function auditBoard({ boards, projects, activeColumns, assigneeVariants =
   for (const card of live.sort((a, b) => a.id - b.id)) {
     const to = Object.hasOwn(assigneeVariants, card.assignee ?? '') ? assigneeVariants[card.assignee] : undefined;
     if (to !== undefined && to !== card.assignee) problems.push({ problem: 'assignee_variant', ...cardRef(card), from: card.assignee, to });
+  }
+  const open = live.filter((card) => String(card.columnName ?? '').trim().toLocaleLowerCase() !== 'done');
+  const constraintById = new Map(constraints.map((item) => [item.id, item]));
+  for (const card of open) {
+    const linked = constraintById.get(card.constraintId);
+    if (constraints.length && !card.constraintRating) problems.push({ problem: 'no_constraint_rating', ...cardRef(card), fix: 'Rate the card against the constraint it bears on: removes, eases, neutral or adds_load (upsert_card card.constraintId and card.constraintRating).' });
+    if (linked?.stage === 'resolved') problems.push({ problem: 'constraint_resolved', ...cardRef(card), constraintId: linked.id, constraint: linked.name, fix: 'Its constraint is resolved: re-rate the card against the current #1 constraint.' });
   }
   const byUrl = new Map();
   for (const card of cards) if (card.externalUrl) byUrl.set(card.externalUrl, [...(byUrl.get(card.externalUrl) || []), card]);

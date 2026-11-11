@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="description" content="The constraints in order: what limits us most, what stage it is in, and the work aimed at it.">
+    <title>Constraints — Northstar</title>
+    <link rel="icon" href="/favicon.svg">
+    <script src="/theme.js"></script>
+    <link rel="stylesheet" href="/styles.css">
+    <link rel="stylesheet" href="/constraints.css">
+    <script src="/constraints.js" type="module"></script>
+  </head>
+  <body>
+    <main class="app-shell constraints-shell">
+      <header class="topbar">
+        <a class="brand" href="/" aria-label="Northstar home"><span class="brand-mark">N</span><span>Northstar</span></a>
+        <div class="topbar-actions"><button class="theme-toggle" data-theme-toggle type="button" aria-label="Switch to dark mode" aria-pressed="false"><span class="theme-icon-light" aria-hidden="true">☀</span><span class="theme-icon-dark" aria-hidden="true">☾</span></button><a class="button secondary button-link" href="/kanban.html?order=constraint">Kanban board</a></div>
+      </header>
+
+      <div class="toc" id="constraints-app" aria-busy="true">
+        <header class="toc-top">
+          <h1 class="toc-title">Constraints</h1>
+          <span id="constraints-summary"></span>
+        </header>
+        <ol class="toc-rows" id="constraints-rows" aria-label="Open constraints by rank"></ol>
+        <p class="toc-empty" id="constraints-empty" hidden>No constraints yet. Name the #1 with upsert_constraint.</p>
+        <details class="toc-resolved" id="constraints-resolved" hidden>
+          <summary>Resolved</summary>
+          <ul id="constraints-resolved-rows"></ul>
+        </details>
+      </div>
+      <p class="toc-error" id="constraints-error" role="alert"></p>
+    </main>
+  </body>
+</html>

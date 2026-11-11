@@ -48,6 +48,13 @@
 .kanban-next-step strong { margin-right:4px; color:var(--muted); font-weight:700; }
 .kanban-decision-tag { width:max-content; max-width:100%; margin-top:9px; padding:4px 8px; border-radius:6px; color:var(--coral); border:1px solid var(--coral); display:block; font-size:10px; font-weight:700; overflow-wrap:anywhere; }
 .kanban-decision-tag.decided { color:var(--green); border-color:var(--green); }
+/* Constraint chip: the constraint's rank and the card's rating. Removes and eases read green, adds load coral. */
+.kanban-constraint-chip { width:max-content; max-width:100%; margin-top:9px; padding:3px 7px; border-radius:6px; display:flex; gap:6px; align-items:baseline; font-size:10px; font-weight:700; color:var(--muted); border:1px solid var(--line); overflow-wrap:anywhere; }
+.kanban-constraint-chip b { font-variant-numeric:tabular-nums; color:var(--ink); }
+.kanban-constraint-chip.rating-removes { color:var(--green); border-color:var(--green); background:var(--green-2); }
+.kanban-constraint-chip.rating-eases { color:var(--green); border-color:var(--green); }
+.kanban-constraint-chip.rating-adds_load { color:var(--coral); border-color:var(--coral); }
+.kanban-constraint-chip.resolved { border-style:dashed; color:var(--muted); background:none; }
 .kanban-card.archived { opacity:.62; border-style:dashed; }
 .kanban-archived-tag { width:max-content; margin-bottom:7px; padding:3px 7px; border-radius:6px; color:var(--muted); border:1px solid var(--line); display:block; font-size:10px; font-weight:700; }
 .kanban-archived-toggle { display:flex; align-self:end; align-items:center; gap:7px; min-height:43px; font-size:13px; font-weight:700; white-space:nowrap; }

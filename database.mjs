@@ -1,5 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 import { openPostgresDatabase } from './postgres-database.mjs';
+import { CONSTRAINT_RATINGS, CONSTRAINT_STAGES } from './public/shared/constraints.js';
 
 const projectsTableSql = `
   CREATE TABLE projects (
@@ -553,6 +554,42 @@ function migrateProgress(db) {
   ensureColumn(db, 'metric_defs', 'hidden', 'INTEGER NOT NULL DEFAULT 0 CHECK(hidden IN (0, 1))');
 }
 
+// Theory of Constraints register: the constraints in rank order (open ones hold ranks 1..n, a
+// resolved one holds none), a change log for stage history and the activity feed, and on each card
+// the constraint it works on and how it bears on it. Additive only: two tables and two nullable columns.
+function migrateConstraints(db) {
+  const stages = CONSTRAINT_STAGES.map((stage) => `'${stage}'`).join(', ');
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS toc_constraints (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL COLLATE NOCASE UNIQUE CHECK(length(name) BETWEEN 1 AND 120),
+      rank INTEGER CHECK(rank IS NULL OR rank >= 1),
+      stage TEXT NOT NULL DEFAULT 'identify' CHECK(stage IN (${stages})),
+      measure TEXT NOT NULL DEFAULT '',
+      metric_key TEXT NOT NULL DEFAULT '',
+      evidence TEXT NOT NULL DEFAULT '',
+      owner TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_toc_constraints_rank ON toc_constraints(rank) WHERE rank IS NOT NULL;
+    CREATE TABLE IF NOT EXISTS toc_constraint_changes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      constraint_id INTEGER NOT NULL REFERENCES toc_constraints(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL CHECK(kind IN ('created', 'updated', 'stage', 'ranked')),
+      detail TEXT NOT NULL DEFAULT '{}',
+      actor TEXT NOT NULL DEFAULT '',
+      changed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_toc_constraint_changes_changed ON toc_constraint_changes(changed_at, id);
+    CREATE INDEX IF NOT EXISTS idx_toc_constraint_changes_constraint ON toc_constraint_changes(constraint_id, changed_at, id);
+  `);
+  ensureColumn(db, 'kanban_cards', 'constraint_id', 'INTEGER REFERENCES toc_constraints(id) ON DELETE SET NULL');
+  const ratings = CONSTRAINT_RATINGS.map((rating) => `'${rating}'`).join(', ');
+  ensureColumn(db, 'kanban_cards', 'constraint_rating', `TEXT CHECK(constraint_rating IS NULL OR constraint_rating IN (${ratings}))`);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_kanban_cards_constraint ON kanban_cards(constraint_id)');
+}
+
 export function databaseConfig(env = process.env) {
   const client = (env.DATABASE_CLIENT || 'sqlite').trim().toLowerCase();
   if (!['sqlite', 'postgres'].includes(client)) throw new Error('DATABASE_CLIENT must be sqlite or postgres.');
@@ -578,6 +615,7 @@ export function openDatabase(filePath, { client = 'sqlite', connectionString } =
         migrateSavedViews(db);
         migrateScheduleStages(db);
         migrateProgress(db);
+        migrateConstraints(db);
         db.exec(`
           CREATE INDEX IF NOT EXISTS idx_planning_room_projects ON planning_session_projects(session_id, position);
           CREATE INDEX IF NOT EXISTS idx_planning_votes_session_project ON planning_votes(session_id, project_id, updated_at);
@@ -600,6 +638,7 @@ export function openDatabase(filePath, { client = 'sqlite', connectionString } =
   migrateSavedViews(db);
   migrateScheduleStages(db);
   migrateProgress(db);
+  migrateConstraints(db);
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_planning_room_projects ON planning_session_projects(session_id, position);
     CREATE INDEX IF NOT EXISTS idx_planning_votes_session_project ON planning_votes(session_id, project_id, updated_at);

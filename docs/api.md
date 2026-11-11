@@ -235,7 +235,7 @@ from `GET /api/kanban?teamId=<id>`). Creating a column without
 | `GET` | `/api/kanban/report` | token endpoint | Every card's column history and durations. |
 | `POST` | `/api/kanban/columns` | token endpoint | Create a column: `{ "name" }`. |
 | `PUT`, `DELETE` | `/api/kanban/columns/:id` | token endpoint | Rename (`name`) or reorder (`position`, 0-based on that team's board; the others shift so positions stay 0..n-1) a column, or delete it (and its cards). |
-| `GET` | `/api/kanban/cards` | token endpoint | Each card includes `columnName`. Find cards by `?key=`, `?externalUrl=`, `?projectId=`, `?decision=open`, `?tag=` or `?source=`; add `?archived=include` or `?archived=only` for archived cards. `?sort=rank` lists ranked cards by rank (ties by id), then unranked ones by id. |
+| `GET` | `/api/kanban/cards` | token endpoint | Each card includes `columnName`. Find cards by `?key=`, `?externalUrl=`, `?projectId=`, `?decision=open`, `?tag=` or `?source=`; add `?archived=include` or `?archived=only` for archived cards. `?sort=rank` lists ranked cards by rank (ties by id), then unranked ones by id. `?sort=constraint` lists cards by the rank of their open constraint, then rating (`removes`, `eases`, `neutral`, `adds_load`, unrated), then as `?sort=rank`. |
 | `POST` | `/api/kanban/cards` | token endpoint | Create a card: `columnId` and `title` required. |
 | `GET`, `PUT`, `DELETE` | `/api/kanban/cards/:id` | token endpoint | Read, partially update (including `columnId` to move and `archived: true/false` to archive or restore) or delete a card. |
 | `PUT` | `/api/kanban/cards/upsert` | token endpoint | Create or update a card by `externalUrl` (default) or by its own `key` with `?key=key`. Returns `{ created, card }`. |
@@ -245,7 +245,7 @@ from `GET /api/kanban?teamId=<id>`). Creating a column without
 | `DELETE` | `/api/kanban/cards/:id/notes/:noteId` | token endpoint | Delete a note. |
 
 Optional card fields: `description`, `assignee`, `externalUrl`, `nextStep`, `decision`,
-`projectId`, `tags`, `rank`, `objective`, `blockedBy`.
+`projectId`, `tags`, `rank`, `objective`, `blockedBy`, `constraintId`, `constraintRating`.
 
 - `rank` is a whole number from 0 to 1000000, or null for none. It is a card's place in a
   sequence across boards and survives moves between columns. The board orders each column by it, and
@@ -258,6 +258,9 @@ Optional card fields: `description`, `assignee`, `externalUrl`, `nextStep`, `dec
   (at most 300) is the longer reason. `waitUntil` is an ISO date and time before which the card
   waits on the clock, or null. `outcome` (at most 200) is what the card's chain of work reaches.
   A sequencing pass usually sets these; see [Sequence](#sequence).
+- `constraintId` links the card to a constraint (null unlinks it). `constraintRating` is how the
+  card bears on that constraint: `removes`, `eases`, `neutral` or `adds_load`, or null for not
+  rated. See [Constraints](#constraints).
 
 ```sh
 curl -X PUT http://localhost:3000/api/kanban/cards/7 \
@@ -268,14 +271,15 @@ curl -X PUT http://localhost:3000/api/kanban/cards/7 \
 
 | Method | Path | Auth | Purpose |
 | --- | --- | --- | --- |
-| `GET` | `/api/activity` | token endpoint | Recent project, planning and card events, newest first. `?since=<ISO time>`, `?limit=` (1–500). |
-| `GET` | `/api/events` | token endpoint | Server-sent event stream. Each committed write sends `{ "version", "kinds" }` (`projects`, `kanban`, `teams`) with an `id` for `Last-Event-ID`; a heartbeat every 25 seconds. |
+| `GET` | `/api/activity` | token endpoint | Recent project, planning, card, progress and constraint events, newest first. `?since=<ISO time>`, `?limit=` (1–500). |
+| `GET` | `/api/events` | token endpoint | Server-sent event stream. Each committed write sends `{ "version", "kinds" }` (`projects`, `kanban`, `teams`, `sequence`, `constraints`) with an `id` for `Last-Event-ID`; a heartbeat every 25 seconds. |
 | `GET` | `/api/version` | token endpoint | `{ "version" }`, the polling fallback when the stream is unavailable. |
 
 Event types: `project.created`, `project.moved`, `project.status`, `project.archived`,
 `project.restored`, `project.team`, `project.capacity`, `planning.decided`, `card.created`,
 `card.moved`, `card.note`, `metrics.recorded`, `metric.defined`, `metric.removed`, `report.created`, `report.updated`,
-`milestone.added`, `milestone.updated`, `milestone.deleted`. Field lists are in the README.
+`milestone.added`, `milestone.updated`, `milestone.deleted`, `constraint.created`,
+`constraint.updated`, `constraint.stage`, `constraint.ranked`. Field lists are in the README.
 
 ```text
 id: 42
@@ -336,6 +340,35 @@ Done drop out.
 moves only when the pass reordered it. Runs and page settings are in the full backup; restoring
 an older backup leaves them in place. Each run and each change to a ranked card sends a
 `sequence` change event.
+
+## Constraints
+
+A Theory of Constraints register: find the #1 constraint, exploit it, subordinate everything else
+to it, elevate it, repeat. The Constraints page shows it;
+[docs/constraints-page.md](https://github.com/tsanford01/northstar/blob/main/docs/constraints-page.md)
+explains it. Anyone signed in, and any token, can read. Writes take an admin session or a write
+token. Every write is idempotent: repeating it changes nothing and adds nothing to the activity feed.
+
+A constraint has `name` (1–120, one line, unique in any case), `rank`, `stage` (`identify`,
+`exploit`, `subordinate`, `elevate`, `resolved`), `measure` (≤500), `metricKey` (a defined Progress
+metric, or `""`), `evidence` (≤2000), `owner` (≤80), `createdAt`, `updatedAt` and `history` (its
+stage moves: `from`, `to`, `note`, `actor`, `at`). Open constraints hold the ranks 1..n with no
+gaps, so exactly one is #1. Placing one at a rank moves the others down; resolving one takes it out
+of the order and the next becomes #1; reopening one puts it back last unless a `rank` is given.
+
+| Method | Path | Auth | Purpose |
+| --- | --- | --- | --- |
+| `GET` | `/api/constraints` | token endpoint | The register: `constraints` (open by rank, then resolved), each with `trend` (the metric's definition and its readings over the 30 days ending on its latest one, or null), `cards` (the linked cards the caller can see: `id`, `title`, `assignee`, `teamName`, `columnName`, `rating`, `open`) and `counts` (open linked cards per rating, plus `unrated`). Also `unrated` (open cards with no rating, once any constraint exists) and `needsRerating` (open cards on a resolved constraint). An open card is one not archived and not in a column named Done. |
+| `GET` | `/api/constraints/:id` | token endpoint | One constraint with its history. |
+| `PUT` | `/api/constraints/upsert` | admin or write token | Create (`201`) or update (`200`) a constraint: `{ "id"?, "name"?, "rank"?, "stage"?, "measure"?, "metricKey"?, "evidence"?, "owner"? }`. Matches on `id`, else on `name` (any case); fields left out keep their values. `rank` is 1–1000 or null (last); a resolved constraint takes none. Returns `{ created, constraint }`. |
+| `PUT` | `/api/constraints/:id/stage` | admin or write token | Move a constraint to a stage: `{ "stage", "note"? }` (note ≤500). Returns `{ changed, constraint }`. |
+
+```json
+{ "name": "Code review wait", "rank": 1, "stage": "exploit", "measure": "Median hours a pull request waits for review", "metricKey": "review_wait_hours", "owner": "Platform lead" }
+```
+
+The full backup includes the register and its history. Restoring a backup made before it existed
+leaves the current register in place. Each change sends a `constraints` change event.
 
 ## Planning rooms
 

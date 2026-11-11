@@ -45,19 +45,19 @@ The token comes from your environment, so it is not written into the file:
 |---|---|---|
 | `list_projects` | read | List projects, optionally by `projectId`, `externalUrl` or `stage` (`Idea` lists the ideas) |
 | `get_project` | read | One project by `id` |
-| `list_cards` | read | Kanban cards across boards by `key`, `externalUrl`, `projectId`, `teamId`, `assignee`, `tag`, `source` or `decision: "open"`. Archived cards appear only with `archived: "include"` or `"only"`. `sort: "rank"` orders by rank, unranked last. |
+| `list_cards` | read | Kanban cards across boards by `key`, `externalUrl`, `projectId`, `teamId`, `assignee`, `tag`, `source` or `decision: "open"`. Archived cards appear only with `archived: "include"` or `"only"`. `sort: "rank"` orders by rank, unranked last; `sort: "constraint"` orders by constraint rank, then rating. |
 | `get_card_by_key` | read | One card by its stable `key` |
 | `get_board` | read | A team's board (`teamId`; the first team's board if omitted), or every board with `team: "all"` |
 | `audit_board` | read | Problems across every board, as a list. You name the active columns (`activeColumns`) and, optionally, assignee spellings to fix (`assigneeVariants: {"from": "to"}`). See [The board audit](#the-board-audit). |
 | `export_board` | read | Every team, column, project and card, archived ones included, as one JSON document in a stable order |
-| `get_activity` | read | The activity feed (`since`, `limit`) |
+| `get_activity` | read | The activity feed (`since`, `limit`), constraint changes included |
 | `list_teams` | read | Teams with capacity and assignments |
 | `status_export` | read | The project status export as CSV |
 | `list_views` | read | Saved views of the projects table belonging to the token's user |
 | `apply_view` | read | The projects a saved view shows (by `id` or `name`), in its order |
 | `upsert_project` | write | Create, or update by `key` (`projectId` or `externalUrl`) |
 | `move_project` | write | Set impact and urgency (1–10), with an optional comment |
-| `upsert_card` | write | Create, or update the card matched by `externalUrl` (default) or, with `key: "key"`, by its own card key. Place it with `team` (name or id) and `column` (name), or a raw `card.columnId`. `card.rank`, `card.objective` and `card.blockedBy` (card ids) are stored too. |
+| `upsert_card` | write | Create, or update the card matched by `externalUrl` (default) or, with `key: "key"`, by its own card key. Place it with `team` (name or id) and `column` (name), or a raw `card.columnId`. `card.rank`, `card.objective`, `card.blockedBy` (card ids), `card.constraintId` and `card.constraintRating` (`removes`, `eases`, `neutral`, `adds_load`, or null) are stored too. |
 | `set_ranks` | write | Set many cards' `rank` in one call (`ranks: [{id, rank}]`, `rank` null clears it); all are written or none |
 | `move_card` | write | Move a card (by `id`, `key` or `externalUrl`) to a column on its own board, by name, and optionally record its project's status (`projectStatus`) |
 | `archive_card`, `restore_card` | write | Archive a card or bring it back |
@@ -71,6 +71,9 @@ The token comes from your environment, so it is not written into the file:
 | `get_needs_you` | read | The count and first three cards waiting on the reader |
 | `get_sequence` | read | The order of work across boards: each step's owner, reason, what it unblocks and reaches, and what the last pass moved (`mine: true` for the caller's own) |
 | `record_sequence_run` | write | Record one sequencing pass: every card's rank and reasons in one transaction (`skillVersion`, `scores`, `items: [{id, rank, rankReason?, reasonFull?, waitUntil?, outcome?}]`) |
+| `list_constraints` | read | The constraint register: open constraints by rank (#1 is the constraint), then resolved ones, each with its measure's trend, stage history and linked cards by rating; plus counts of unrated cards and cards to re-rate |
+| `upsert_constraint` | write | Create a constraint, or update it by `id` (else `name`): `rank` (1 = the constraint; others move down), `stage`, `measure`, `metricKey` (a Progress metric), `evidence`, `owner` |
+| `set_constraint_stage` | write | Move a constraint (by `id` or `name`) to `identify`, `exploit`, `subordinate`, `elevate` or `resolved`, with an optional `note` |
 | `set_sequence_design` | write | Set or clear (`url: ""`) the Sequence page's design link (https only) |
 | `export_progress` | read | Every definition, reading, milestone and report as one JSON document in a stable order |
 | `record_metrics` | write | One day's readings: `date` and `metrics: [{key, value, note?, rebuilt?}]` |
@@ -93,6 +96,25 @@ waiting on the reader. Every write tool is idempotent, so an agent can repeat a 
 3. Write the day's report with `upsert_report`. Give each bullet that explains a number its
    `metric_key`, so the page links the line and the tile.
 4. Mark turning points with `add_milestone`.
+
+### Constraint tools
+
+The register follows the Theory of Constraints: one #1 constraint at a time, worked through
+identify → exploit → subordinate → elevate → resolved, then the next one up. Every write is
+idempotent.
+
+1. Name the constraint with `upsert_constraint`: `name`, a `measure` and, when a Progress metric
+   tracks it, its `metricKey`, plus `evidence` and an `owner`. `rank: 1` makes it the #1.
+2. Rate the work: `upsert_card` with `card.constraintId` and `card.constraintRating` (`removes`,
+   `eases`, `neutral` or `adds_load`). `list_cards` with `sort: "constraint"` shows the order.
+3. Move it along with `set_constraint_stage` and a `note` on why. Resolving it makes the next one #1.
+4. Run `audit_board`: it lists open cards with no rating and cards still on a resolved constraint.
+
+```json
+{ "name": "upsert_constraint", "arguments": { "name": "Code review wait", "rank": 1, "measure": "Median hours a pull request waits", "metricKey": "review_wait_hours", "owner": "Platform lead" } }
+{ "name": "upsert_card", "arguments": { "card": { "externalUrl": "https://tracker.example/T-12", "constraintId": 1, "constraintRating": "removes" } } }
+{ "name": "set_constraint_stage", "arguments": { "name": "Code review wait", "stage": "exploit", "note": "Reviewers named per area" } }
+```
 
 ### Placing and moving cards
 
@@ -125,6 +147,8 @@ the cards and project involved:
 | `no_status_line` | A project with cards in an active column has no `Status YYYY-MM-DD:` line |
 | `assignee_variant` | A card's assignee is one of the `assigneeVariants` keys |
 | `duplicate_external_url` | More than one card has the same externalUrl (archived cards included) |
+| `no_constraint_rating` | Once any constraint exists: an open card (not archived, not in a column named Done) with no `constraintRating` |
+| `constraint_resolved` | An open card linked to a resolved constraint: re-rate it against the current #1 |
 
 Nothing is hard-coded: the columns that count as active are the ones you pass in `activeColumns`.
 

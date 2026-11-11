@@ -4,6 +4,7 @@ import { COLUMN_DRAG_TYPE, columnControls, dropTarget, moveTarget, reorderColumn
 import { ALL_BOARDS, targetColumn } from './shared/kanban-boards.js';
 import { cardMatches, requestedCard } from './shared/card-search.js';
 import { compareCards, ranksForMove } from './shared/card-order.js';
+import { compareByConstraint, RATING_LABELS } from './shared/constraints.js';
 
 const board = document.querySelector('#kanban-board');
 const dialog = document.querySelector('#card-dialog');
@@ -30,6 +31,7 @@ const teamFilterField = document.querySelector('#team-filter-field');
 const cardTeamField = document.querySelector('#card-team-field');
 const exportButton = document.querySelector('#download-kanban-report');
 const cardSearch = document.querySelector('#card-search');
+const orderSelect = document.querySelector('#card-order');
 let data = { columns: [], cards: [] };
 let projects = [];
 let canEdit = false;
@@ -43,6 +45,9 @@ let selectedAssignee = '';
 let selectedDecision = '';
 let selectedTeamFilter = '';
 let searchText = '';
+// Board order, or ?order=constraint: cards on the #1 constraint first, then by rating (see compareByConstraint).
+let selectedOrder = new URLSearchParams(location.search).get('order') === 'constraint' ? 'constraint' : '';
+let constraintsById = new Map();
 let dragging = false;
 let editingCard = null;
 
@@ -82,7 +87,31 @@ function blockerLabel(id) {
   return `<span class="${done ? 'kanban-blocker-done' : ''}" title="${escapeHtml(blocker.title)}">#${id} ${escapeHtml(blocker.title)}</span>`;
 }
 
+// The register, for the chips and the constraint order. A board without constraints shows neither.
+async function loadConstraints() {
+  try {
+    const register = await requestJson('/api/constraints', { credentials: 'same-origin', cache: 'no-store' }, 'The constraints could not load.');
+    constraintsById = new Map(register.constraints.map((item) => [item.id, item]));
+  } catch { constraintsById = new Map(); }
+}
+
+const constraintRanks = () => new Map([...constraintsById.values()].filter((item) => item.rank !== null).map((item) => [item.id, item.rank]));
+const cardOrder = () => (selectedOrder === 'constraint' ? compareByConstraint(constraintRanks(), compareCards) : compareCards);
+
+// "#1 · Removes": the constraint's rank and the card's rating. A resolved constraint asks for a re-rating.
+function constraintChip(card) {
+  if (!card.constraintId && !card.constraintRating) return '';
+  const linked = constraintsById.get(card.constraintId);
+  const rating = card.constraintRating ? RATING_LABELS[card.constraintRating] : 'Not rated';
+  const resolved = linked?.stage === 'resolved';
+  const place = linked ? (resolved ? 'Resolved' : `#${linked.rank}`) : '';
+  const title = linked ? `Constraint ${resolved ? '(resolved, re-rate this card)' : `#${linked.rank}`}: ${linked.name} · ${rating}` : `Constraint rating: ${rating}`;
+  return `<span class="kanban-constraint-chip rating-${escapeHtml(card.constraintRating || 'none')}${resolved ? ' resolved' : ''}" title="${escapeHtml(title)}">${place ? `<b>${escapeHtml(place)}</b>` : ''}${escapeHtml(rating)}</span>`;
+}
+
 function render() {
+  orderSelect.value = selectedOrder;
+  orderSelect.closest('.field').hidden = !constraintsById.size && !selectedOrder;
   const tags = [...new Set(data.cards.flatMap((card) => card.tags || []))].sort((a, b) => a.localeCompare(b));
   if (selectedTag && !tags.includes(selectedTag)) selectedTag = '';
   tagFilter.innerHTML = '<option value="">All tags</option>' + tags.map((tag) => `<option value="${escapeHtml(tag)}">${escapeHtml(tag)}</option>`).join('');
@@ -108,7 +137,7 @@ function render() {
       && (!selectedTag || card.tags?.includes(selectedTag))
       && (!selectedAssignee || (selectedAssignee === 'none' ? !card.assignee : card.assignee === selectedAssignee))
       && (selectedDecision !== 'open' || (card.decision && !card.decision.decidedOption))
-      && (selectedProject === 'all' || (selectedProject === 'none' ? card.projectId === null : String(card.projectId) === selectedProject))).sort(compareCards);
+      && (selectedProject === 'all' || (selectedProject === 'none' ? card.projectId === null : String(card.projectId) === selectedProject))).sort(cardOrder());
     return `<section class="kanban-column" data-column-id="${escapeHtml(column.key)}" aria-label="${escapeHtml(column.name)}">
       <header class="kanban-column-head"${canManageColumns ? ' draggable="true" title="Drag to reorder"' : ''}><div><h2>${escapeHtml(column.name)}</h2><span>${cards.length}</span></div>${columnControls(column, columnIndex, data.columns.length, canManageColumns)}</header>
       <div class="kanban-card-list">${cards.map((card) => `<article class="kanban-card${card.archived ? ' archived' : ''}" data-card-id="${card.id}" ${canEdit && canEditTeam(card.teamId) ? 'draggable="true"' : ''} tabindex="0" role="button" aria-label="${escapeHtml(card.title)}${allMode() ? `, ${escapeHtml(card.teamName)}` : ''}">
@@ -118,6 +147,7 @@ function render() {
         ${card.objective ? `<p class="kanban-objective"><strong>Objective</strong> ${escapeHtml(card.objective)}</p>` : ''}
         ${(card.blockedBy || []).length ? `<p class="kanban-blocked-by"><strong>Blocked by</strong> ${card.blockedBy.map((id) => blockerLabel(id)).join(', ')}</p>` : ''}
         ${card.rank === null || card.rank === undefined ? '' : `<span class="kanban-rank" title="Rank in the sequence">Rank ${card.rank}</span>`}
+        ${constraintChip(card)}
         ${card.decision ? `<span class="kanban-decision-tag${card.decision.decidedOption ? ' decided' : ''}">${card.decision.decidedOption
     ? `Decided: ${escapeHtml(card.decision.decidedOption)}`
     : `Decision open${card.decision.recommendation ? ` · recommends ${escapeHtml(card.decision.recommendation)}${card.decision.confidence === null ? '' : ` (${card.decision.confidence}%)`}` : ''}`}</span>` : ''}
@@ -243,7 +273,7 @@ function cardTeamId() {
 }
 
 async function reload() {
-  data = normalize(await api(boardPath()));
+  [data] = await Promise.all([api(boardPath()).then(normalize), loadConstraints()]);
   render();
 }
 
@@ -328,6 +358,13 @@ tagFilter.addEventListener('change', () => { selectedTag = tagFilter.value; rend
 projectFilter.addEventListener('change', () => { selectedProject = projectFilter.value; render(); });
 assigneeFilter.addEventListener('change', () => { selectedAssignee = assigneeFilter.value; render(); });
 decisionFilter.addEventListener('change', () => { selectedDecision = decisionFilter.value; render(); });
+orderSelect.addEventListener('change', () => {
+  selectedOrder = orderSelect.value;
+  const params = new URLSearchParams(location.search);
+  if (selectedOrder) params.set('order', selectedOrder); else params.delete('order');
+  history.replaceState(null, '', `?${params}`);
+  render();
+});
 teamFilter.addEventListener('change', () => { selectedTeamFilter = teamFilter.value; render(); });
 cardSearch.addEventListener('input', () => { searchText = cardSearch.value; render(); });
 form.elements.teamId.addEventListener('change', () => { form.elements.projectId.innerHTML = projectOptions(cardTeamId()); });
@@ -418,7 +455,9 @@ function clearDropMarks() {
 let draggedCardId = null;
 
 // Dragging a card within its column sets its rank between its new neighbours (see ranksForMove).
+// In constraint order the column is not in rank order, so a drop there sets nothing.
 async function reorderCard(card, columnElement, clientY) {
+  if (selectedOrder === 'constraint') { showToast('Switch to board order to reorder cards'); return; }
   const column = data.cards.filter((item) => item.columnKey === card.columnKey).sort(compareCards);
   const others = column.filter((item) => item.id !== card.id);
   const before = dropBefore(columnElement, clientY, card.id);
@@ -534,12 +573,12 @@ async function selectTeam(teamId) {
   columnForm.hidden = !canManageColumns;
   exportButton.hidden = allMode();
   teamFilterField.hidden = !allMode();
-  const [board, boardProjects] = await Promise.all([api(boardPath()), api('/projects')]);
+  const [board, boardProjects] = await Promise.all([api(boardPath()), api('/projects'), loadConstraints()]);
   data = normalize(board);
   projects = boardProjects;
   selectedProject = 'all'; selectedTag = ''; selectedTeamFilter = '';
   render();
-  history.replaceState(null, '', `?teamId=${teamId}`);
+  history.replaceState(null, '', `?teamId=${teamId}${selectedOrder ? '&order=constraint' : ''}`);
 }
 
 function setCardParam(cardId) {
@@ -572,8 +611,9 @@ try {
   if (requestedParam === ALL_BOARDS && teams.length > 1) { teamBoard.value = ALL_BOARDS; await selectTeam(ALL_BOARDS); }
   else if (initial) { teamBoard.value = String(initial.id); await selectTeam(initial.id); }
   if (deepLink) await openRequestedCard(deepLink);
-  liveUpdates(['kanban', 'projects'], async (kinds) => {
+  liveUpdates(['kanban', 'projects', 'constraints'], async (kinds) => {
     if (!selectedTeamId) return;
+    if (kinds.includes('constraints')) await loadConstraints();
     // Column lists scroll on their own; keep each where the viewer left it.
     const scrolls = new Map([...board.querySelectorAll('[data-column-id]')].map((element) => [element.dataset.columnId, element.querySelector('.kanban-card-list')?.scrollTop || 0]));
     const [nextData, nextProjects] = await Promise.all([

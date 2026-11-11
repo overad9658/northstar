@@ -12,6 +12,7 @@ import { ALL_BOARDS } from './public/shared/kanban-boards.js';
 import { createViewsService, ViewError } from './views-service.mjs';
 import { createProgressService, ProgressError } from './progress-service.mjs';
 import { buildSequence, createSequenceService } from './sequence-service.mjs';
+import { ConstraintError, createConstraintService } from './constraint-service.mjs';
 import { ActivityError, createActivityService } from './activity-service.mjs';
 import { createEventsService } from './events-service.mjs';
 import { createFailureLimiter, positiveInteger } from './rate-limit.mjs';
@@ -50,10 +51,11 @@ export function createApi(db, { apiToken = process.env.API_TOKEN, tokenFailuresP
   const views = createViewsService(db);
   const progress = createProgressService(db);
   const sequence = createSequenceService(db, kanban);
+  const constraints = createConstraintService(db);
   const todos = createTodoService(db);
   const okrs = createOkrService(db);
   const activity = createActivityService(db);
-  const events = createEventsService({ projects, kanban, teams, sequence });
+  const events = createEventsService({ projects, kanban, teams, sequence, constraints });
   const dataApi = createDataApi(db, projects, { apiToken });
   const requireUser = (req) => { const user = auth.userForRequest(req); if (!user) throw new AuthError(401, 'Authentication is required.'); return user; };
   const requireAdmin = (req) => { const user = requireUser(req); if (user.role !== 'admin') throw new AuthError(403, 'Admin access is required.'); return user; };
@@ -190,7 +192,8 @@ export function createApi(db, { apiToken = process.env.API_TOKEN, tokenFailuresP
       const viewsPath = /^\/api\/views(?:\/\d+)?$/.test(url.pathname);
       const progressPath = url.pathname === '/api/progress' || url.pathname.startsWith('/api/progress/');
       const sequencePath = ['/api/sequence', '/api/sequence/runs', '/api/sequence/settings'].includes(url.pathname);
-      const tokenPath = kanbanPath || projectsPath || teamsPath || viewsPath || progressPath || sequencePath || ['/api/activity', '/api/events', '/api/version'].includes(url.pathname);
+      const constraintsPath = /^\/api\/constraints(?:\/upsert|\/\d+(?:\/stage)?)?$/.test(url.pathname);
+      const tokenPath = kanbanPath || projectsPath || teamsPath || viewsPath || progressPath || sequencePath || constraintsPath || ['/api/activity', '/api/events', '/api/version'].includes(url.pathname);
       const tokenAccess = tokenPath ? bearerAccess : null;
       if (tokenAccess?.scope === 'read' && req.method !== 'GET') throw new AuthError(403, 'This API token is read-only.');
       // Tokens belong to no team: a write token acts as an admin, a read token as a read-only viewer.
@@ -335,6 +338,37 @@ export function createApi(db, { apiToken = process.env.API_TOKEN, tokenFailuresP
         const [latest = null, previous = null] = sequence.latestRuns();
         const mine = ['1', 'true'].includes(url.searchParams.get('mine') ?? '');
         return json(res, 200, { ...buildSequence({ cards, latest, previous, viewer: user.username, mine }), designUrl: sequence.settings().designUrl }), true;
+      }
+      // The constraint register: anyone signed in (or any token) reads it; writes take an admin or a
+      // write token, as Progress does. Linked cards are the ones the viewer can see.
+      if (constraintsPath) {
+        res.setHeader('cache-control', 'no-store');
+        const path = url.pathname.slice('/api/constraints'.length);
+        const stageMatch = path.match(/^\/(\d+)\/stage$/);
+        const idMatch = path.match(/^\/(\d+)$/);
+        if (path === '') {
+          if (req.method !== 'GET') return json(res, 405, { error: 'Method not allowed.' }), true;
+          const visibleTeams = teams.list({ includeHidden: user.role === 'admin' }).map(({ id, name }) => ({ id, name, includeHidden: canSeeHiddenOn(id) }));
+          const board = kanban.listAll({ teams: visibleTeams, archived: 'include' });
+          const columnNames = new Map(board.columns.map((column) => [column.key, column.name]));
+          const cards = board.cards.map((card) => ({ ...card, columnName: columnNames.get(card.columnKey) ?? '' }));
+          return json(res, 200, constraints.register({ cards })), true;
+        }
+        if (idMatch) {
+          if (req.method !== 'GET') return json(res, 405, { error: 'Method not allowed.' }), true;
+          return json(res, 200, constraints.get(Number(idMatch[1]))), true;
+        }
+        if (path === '/upsert') {
+          if (req.method !== 'PUT') return json(res, 405, { error: 'Method not allowed.' }), true;
+          requireUserAdmin();
+          const result = constraints.upsert(await readJson(req), { actor: user.username });
+          return json(res, result.created ? 201 : 200, result), true;
+        }
+        if (stageMatch) {
+          if (req.method !== 'PUT') return json(res, 405, { error: 'Method not allowed.' }), true;
+          requireUserAdmin();
+          return json(res, 200, constraints.setStage(Number(stageMatch[1]), await readJson(req), { actor: user.username })), true;
+        }
       }
       if (url.pathname === '/api/sequence/settings') {
         res.setHeader('cache-control', 'no-store');
@@ -541,7 +575,7 @@ export function createApi(db, { apiToken = process.env.API_TOKEN, tokenFailuresP
       }
       return json(res, 405, { error: 'Method not allowed.' }), true;
     } catch (error) {
-      const status = error instanceof PlanningError || error instanceof ProjectError || error instanceof AuthError || error instanceof KanbanError || error instanceof ActivityError || error instanceof OkrError || error instanceof ViewError || error instanceof ProgressError ? error.status : 400;
+      const status = error instanceof PlanningError || error instanceof ProjectError || error instanceof AuthError || error instanceof KanbanError || error instanceof ActivityError || error instanceof OkrError || error instanceof ViewError || error instanceof ProgressError || error instanceof ConstraintError ? error.status : 400;
       const details = error instanceof PlanningError ? error.data : {};
       json(res, status, { error: error instanceof Error ? error.message : 'Request failed.', ...details });
       return true;
